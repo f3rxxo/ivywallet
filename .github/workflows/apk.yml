@@ -30,3 +30,4 @@ jobs:
         with:
           name: Ivy-Wallet-Demo.apk
           path: app/build/outputs/apk/demo/app-demo.apk
+
