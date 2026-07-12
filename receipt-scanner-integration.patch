@@ -1,0 +1,1265 @@
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index a53ed8142..b2ae48f21 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -140,6 +140,7 @@ dependencies {
+     implementation(projects.feature.plannedPayments)
+     implementation(projects.feature.poll.impl)
+     implementation(projects.feature.poll.public)
++    implementation(projects.feature.receiptScanner)
+     implementation(projects.feature.releases)
+     implementation(projects.feature.reports)
+     implementation(projects.feature.search)
+diff --git a/app/src/main/java/com/ivy/IvyNavGraph.kt b/app/src/main/java/com/ivy/IvyNavGraph.kt
+index 6bc0130ce..65e748281 100644
+--- a/app/src/main/java/com/ivy/IvyNavGraph.kt
++++ b/app/src/main/java/com/ivy/IvyNavGraph.kt
+@@ -36,6 +36,7 @@ import com.ivy.navigation.OnboardingScreen
+ import com.ivy.navigation.PieChartStatisticScreen
+ import com.ivy.navigation.PlannedPaymentsScreen
+ import com.ivy.navigation.PollScreen
++import com.ivy.navigation.ReceiptScannerScreen
+ import com.ivy.navigation.ReleasesScreen
+ import com.ivy.navigation.ReportScreen
+ import com.ivy.navigation.Screen
+@@ -47,6 +48,7 @@ import com.ivy.piechart.PieChartStatisticScreen
+ import com.ivy.planned.edit.EditPlannedScreen
+ import com.ivy.planned.list.PlannedPaymentsScreen
+ import com.ivy.poll.impl.ui.PollScreen
++import com.ivy.receiptscanner.ui.ReceiptScannerScreenRoute
+ import com.ivy.releases.ReleasesScreenImpl
+ import com.ivy.reports.ReportScreen
+ import com.ivy.search.SearchScreen
+@@ -68,6 +70,7 @@ fun BoxWithConstraintsScope.IvyNavGraph(screen: Screen?) {
+         is OnboardingScreen -> OnboardingScreen(screen = screen)
+         is ExchangeRatesScreen -> ExchangeRatesScreen()
+         is EditTransactionScreen -> EditTransactionScreen(screen = screen)
++        ReceiptScannerScreen -> ReceiptScannerScreenRoute()
+         is TransactionsScreen -> TransactionsScreen(screen = screen)
+         is PieChartStatisticScreen -> PieChartStatisticScreen(screen = screen)
+         is CategoriesScreen -> CategoriesScreen(screen = screen)
+diff --git a/feature/edit-transaction/src/main/java/com/ivy/transaction/EditTransactionViewModel.kt b/feature/edit-transaction/src/main/java/com/ivy/transaction/EditTransactionViewModel.kt
+index 189a657e8..5a5482abe 100644
+--- a/feature/edit-transaction/src/main/java/com/ivy/transaction/EditTransactionViewModel.kt
++++ b/feature/edit-transaction/src/main/java/com/ivy/transaction/EditTransactionViewModel.kt
+@@ -174,8 +174,10 @@ class EditTransactionViewModel @Inject constructor(
+                 ),
+                 categoryId = screen.categoryId,
+                 type = screen.type,
+-                amount = BigDecimal.ZERO,
+-                toAmount = BigDecimal.ZERO
++                amount = screen.initialAmount?.toBigDecimal() ?: BigDecimal.ZERO,
++                toAmount = screen.initialAmount?.toBigDecimal() ?: BigDecimal.ZERO,
++                title = screen.initialTitle,
++                dateTime = screen.initialDateTime
+             )
+ 
+             tags = tagList.await()
+diff --git a/feature/main/src/main/java/com/ivy/main/MainBottomBar.kt b/feature/main/src/main/java/com/ivy/main/MainBottomBar.kt
+index 1cd211748..4b8489e6b 100644
+--- a/feature/main/src/main/java/com/ivy/main/MainBottomBar.kt
++++ b/feature/main/src/main/java/com/ivy/main/MainBottomBar.kt
+@@ -82,6 +82,7 @@ fun BoxWithConstraintsScope.BottomBar(
+     onAddExpense: () -> Unit,
+     onAddTransfer: () -> Unit,
+     onAddPlannedPayment: () -> Unit,
++    onScanReceipt: () -> Unit,
+ 
+     showAddAccountModal: () -> Unit,
+ ) {
+@@ -174,7 +175,8 @@ fun BoxWithConstraintsScope.BottomBar(
+         onAddIncome = onAddIncome,
+         onAddExpense = onAddExpense,
+         onAddTransfer = onAddTransfer,
+-        onAddPlannedPayment = onAddPlannedPayment
++        onAddPlannedPayment = onAddPlannedPayment,
++        onScanReceipt = onScanReceipt
+     )
+ 
+     var dragOffset by remember {
+@@ -277,6 +279,7 @@ private fun TransactionButtons(
+     onAddExpense: () -> Unit,
+     onAddTransfer: () -> Unit,
+     onAddPlannedPayment: () -> Unit,
++    onScanReceipt: () -> Unit,
+ ) {
+     val ivyContext = ivyWalletCtx()
+ 
+@@ -314,6 +317,28 @@ private fun TransactionButtons(
+             onAddPlannedPayment()
+         }
+ 
++        IvyOutlinedButton(
++            modifier = Modifier
++                .layout { measurable, constraints ->
++                    val placealbe = measurable.measure(constraints)
++                    layout(placealbe.width, placealbe.height) {
++                        placealbe.place(
++                            x = ivyContext.screenWidth / 2 - placealbe.width / 2,
++                            y = buttonCenterY.roundToInt() - 48.dp.roundToPx() - placealbe.height -
++                                FAB_BUTTON_SIZE.roundToPx() - placealbe.height - 12.dp.roundToPx()
++                        )
++                    }
++                }
++                .padding(horizontal = 8.dp)
++                .alpha(buttonsShownPercent)
++                .zIndex(200f),
++            iconStart = R.drawable.ic_vue_money_receipt_items,
++            text = stringResource(R.string.scan_receipt),
++            solidBackground = true
++        ) {
++            onScanReceipt()
++        }
++
+         // Add INCOME ------------------------------------------------------------------------------
+         AddIncomeButton(
+             buttonsShownPercent = buttonsShownPercent,
+diff --git a/feature/main/src/main/java/com/ivy/main/MainScreen.kt b/feature/main/src/main/java/com/ivy/main/MainScreen.kt
+index f2dd59bbe..38a764fe9 100644
+--- a/feature/main/src/main/java/com/ivy/main/MainScreen.kt
++++ b/feature/main/src/main/java/com/ivy/main/MainScreen.kt
+@@ -21,6 +21,7 @@ import com.ivy.legacy.utils.onScreenStart
+ import com.ivy.navigation.EditPlannedScreen
+ import com.ivy.navigation.EditTransactionScreen
+ import com.ivy.navigation.MainScreen
++import com.ivy.navigation.ReceiptScannerScreen
+ import com.ivy.navigation.navigation
+ import com.ivy.wallet.domain.deprecated.logic.model.CreateAccountData
+ import com.ivy.wallet.ui.theme.modal.edit.AccountModal
+@@ -104,6 +105,9 @@ private fun BoxWithConstraintsScope.UI(
+                 )
+             )
+         },
++        onScanReceipt = {
++            nav.navigateTo(ReceiptScannerScreen)
++        },
+ 
+         showAddAccountModal = {
+             accountModalData = AccountModalData(
+diff --git a/feature/receipt-scanner/build.gradle.kts b/feature/receipt-scanner/build.gradle.kts
+new file mode 100644
+index 000000000..8840686fe
+--- /dev/null
++++ b/feature/receipt-scanner/build.gradle.kts
+@@ -0,0 +1,29 @@
++plugins {
++    id("ivy.feature")
++}
++
++android {
++    namespace = "com.ivy.receiptscanner"
++}
++
++dependencies {
++    implementation(projects.shared.base)
++    implementation(projects.shared.data.core)
++    implementation(projects.shared.domain)
++    implementation(projects.shared.ui.core)
++    implementation(projects.shared.ui.navigation)
++
++    // For MerchantCategoryOverrideStore (user-taught merchant->category rules),
++    // piggybacking on the app's existing Preferences DataStore setup.
++    // (Already exposed transitively via shared.data.core's `api(libs.datastore)`,
++    // but declared explicitly here for clarity.)
++    implementation(libs.datastore)
++
++    // ML Kit on-device text recognition (free, offline, no API key)
++    implementation("com.google.mlkit:text-recognition:16.0.1")
++
++    // Coroutines <-> ML Kit Task interop
++    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
++
++    testImplementation(projects.shared.ui.testing)
++}
+diff --git a/feature/receipt-scanner/src/main/AndroidManifest.xml b/feature/receipt-scanner/src/main/AndroidManifest.xml
+new file mode 100644
+index 000000000..2116d0cf2
+--- /dev/null
++++ b/feature/receipt-scanner/src/main/AndroidManifest.xml
+@@ -0,0 +1,30 @@
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
++
++    <uses-permission android:name="android.permission.CAMERA" />
++
++    <uses-feature
++        android:name="android.hardware.camera"
++        android:required="false" />
++
++    <!-- Required on Android 11+ (API 30) so the implicit camera-capture intent
++         can be resolved at all; without this the camera launch can silently
++         fail / crash on some OEM builds due to package-visibility rules. -->
++    <queries>
++        <intent>
++            <action android:name="android.media.action.IMAGE_CAPTURE" />
++        </intent>
++    </queries>
++
++    <application>
++        <provider
++            android:name="androidx.core.content.FileProvider"
++            android:authorities="${applicationId}.receiptscanner.fileprovider"
++            android:exported="false"
++            android:grantUriPermissions="true">
++            <meta-data
++                android:name="android.support.FILE_PROVIDER_PATHS"
++                android:resource="@xml/receipt_scanner_file_paths" />
++        </provider>
++    </application>
++
++</manifest>
+diff --git a/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/category/DefaultMerchantCategoryDictionary.kt b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/category/DefaultMerchantCategoryDictionary.kt
+new file mode 100644
+index 000000000..5f3d3debb
+--- /dev/null
++++ b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/category/DefaultMerchantCategoryDictionary.kt
+@@ -0,0 +1,70 @@
++package com.ivy.receiptscanner.category
++
++import java.util.Locale
++
++/**
++ * Built-in, best-effort merchant -> category-name dictionary.
++ * Matching is substring-based and case-insensitive, since OCR'd merchant
++ * text is messy (e.g. "ALDI SUD 4471" still needs to match "ALDI").
++ *
++ * This only returns a category *name* (e.g. "Groceries"). Resolving that
++ * name to a real CategoryId (which depends on the user's own categories)
++ * happens in MerchantCategoryMatcher.
++ */
++object DefaultMerchantCategoryDictionary {
++
++    // Keep entries UPPERCASE; matching lowercases both sides.
++    private val rules: List<Pair<String, String>> = listOf(
++        // Groceries
++        "ALDI" to "Groceries",
++        "LIDL" to "Groceries",
++        "WALMART" to "Groceries",
++        "TESCO" to "Groceries",
++        "TRADER JOE" to "Groceries",
++        "WHOLE FOODS" to "Groceries",
++        "KROGER" to "Groceries",
++        "SAFEWAY" to "Groceries",
++        "COSTCO" to "Groceries",
++        "CARREFOUR" to "Groceries",
++        "SAINSBURY" to "Groceries",
++
++        // Dining / coffee
++        "STARBUCKS" to "Dining",
++        "MCDONALD" to "Dining",
++        "BURGER KING" to "Dining",
++        "KFC" to "Dining",
++        "SUBWAY" to "Dining",
++        "DOMINO" to "Dining",
++        "PIZZA HUT" to "Dining",
++
++        // Transport / fuel
++        "SHELL" to "Transport",
++        "BP " to "Transport",
++        "EXXON" to "Transport",
++        "CHEVRON" to "Transport",
++        "UBER" to "Transport",
++        "LYFT" to "Transport",
++
++        // Pharmacy / health
++        "WALGREENS" to "Health",
++        "CVS" to "Health",
++        "BOOTS" to "Health",
++
++        // Home / general retail
++        "IKEA" to "Household",
++        "HOME DEPOT" to "Household",
++        "TARGET" to "Household",
++
++        // Entertainment
++        "NETFLIX" to "Entertainment",
++        "SPOTIFY" to "Entertainment",
++        "CINEMA" to "Entertainment"
++    )
++
++    /** @return a suggested category name, or null if nothing matched. */
++    fun suggestCategoryName(merchantOrReceiptText: String?): String? {
++        if (merchantOrReceiptText.isNullOrBlank()) return null
++        val upper = merchantOrReceiptText.uppercase(Locale.ROOT)
++        return rules.firstOrNull { (pattern, _) -> upper.contains(pattern) }?.second
++    }
++}
+diff --git a/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/category/MerchantCategoryMatcher.kt b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/category/MerchantCategoryMatcher.kt
+new file mode 100644
+index 000000000..d64f6424d
+--- /dev/null
++++ b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/category/MerchantCategoryMatcher.kt
+@@ -0,0 +1,52 @@
++package com.ivy.receiptscanner.category
++
++import com.ivy.data.model.CategoryId
++import com.ivy.data.repository.CategoryRepository
++import javax.inject.Inject
++import javax.inject.Singleton
++
++/**
++ * Resolves a merchant/receipt text to a real CategoryId, or null if there's
++ * no confident match. Never guesses when unsure — a wrong auto-assigned
++ * category is worse than none, since the review screen lets the user pick
++ * one anyway.
++ *
++ * Priority:
++ *  1. User-taught overrides (MerchantCategoryOverrideStore) — these win,
++ *     since they reflect an explicit correction the person already made.
++ *  2. Built-in dictionary (DefaultMerchantCategoryDictionary).
++ *
++ * Either way, the *name* still has to resolve to a category the user
++ * actually has — categories are fully user-defined in Ivy Wallet, so
++ * "Groceries" only works if such a category exists. Matching re-uses the
++ * same case-insensitive name comparison as the existing CSV importer
++ * (see CSVImporterV2.mapCategory) for consistency.
++ */
++@Singleton
++class MerchantCategoryMatcher @Inject constructor(
++    private val categoryRepository: CategoryRepository,
++    private val overrideStore: MerchantCategoryOverrideStore
++) {
++
++    suspend fun matchCategory(merchantOrReceiptText: String?): CategoryId? {
++        if (merchantOrReceiptText.isNullOrBlank()) return null
++
++        // 1. User-taught override — already stores a concrete CategoryId.
++        overrideStore.findCategoryId(merchantOrReceiptText)?.let { return CategoryId(it) }
++
++        // 2. Built-in dictionary suggests a category *name*; resolve it
++        //    against the user's real categories.
++        val suggestedName = DefaultMerchantCategoryDictionary
++            .suggestCategoryName(merchantOrReceiptText) ?: return null
++
++        val categories = categoryRepository.findAll()
++        return categories.firstOrNull { category ->
++            category.name.value.equals(suggestedName, ignoreCase = true)
++        }?.id
++    }
++
++    /** Call after the user confirms a transaction, to teach future matches. */
++    suspend fun learn(merchantText: String, categoryId: CategoryId) {
++        overrideStore.learn(merchantText, categoryId.value)
++    }
++}
+diff --git a/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/category/MerchantCategoryOverrideStore.kt b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/category/MerchantCategoryOverrideStore.kt
+new file mode 100644
+index 000000000..cf5922de1
+--- /dev/null
++++ b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/category/MerchantCategoryOverrideStore.kt
+@@ -0,0 +1,75 @@
++package com.ivy.receiptscanner.category
++
++import androidx.datastore.core.DataStore
++import androidx.datastore.preferences.core.Preferences
++import androidx.datastore.preferences.core.edit
++import androidx.datastore.preferences.core.stringPreferencesKey
++import kotlinx.coroutines.flow.first
++import kotlinx.serialization.Serializable
++import kotlinx.serialization.json.Json
++import java.util.Locale
++import java.util.UUID
++import javax.inject.Inject
++import javax.inject.Singleton
++
++@Serializable
++data class MerchantCategoryOverride(
++    // Uppercased substring to match against merchant/receipt text, e.g. "ALDI"
++    val merchantPattern: String,
++    val categoryId: String // UUID as string
++)
++
++/**
++ * Stores user corrections like "ALDI -> Household" (overriding the built-in
++ * "ALDI -> Groceries" guess) so the app learns from what the person actually
++ * picks on the review screen, without needing a new Room table/migration.
++ *
++ * Piggybacks on Ivy Wallet's existing app-wide Preferences DataStore
++ * (see com.ivy.data.datastore.Datastore) — this class just owns one key
++ * in it, JSON-encoded.
++ */
++@Singleton
++class MerchantCategoryOverrideStore @Inject constructor(
++    private val dataStore: DataStore<Preferences>
++) {
++    private val key = stringPreferencesKey("receipt_scanner_merchant_category_overrides")
++
++    suspend fun getAll(): List<MerchantCategoryOverride> {
++        val raw = dataStore.data.first()[key] ?: return emptyList()
++        return try {
++            Json.decodeFromString(raw)
++        } catch (e: Exception) {
++            emptyList()
++        }
++    }
++
++    /** Looks for a stored override whose pattern is contained in [text]. */
++    suspend fun findCategoryId(text: String): UUID? {
++        val upper = text.uppercase(Locale.ROOT)
++        val match = getAll().firstOrNull { upper.contains(it.merchantPattern) } ?: return null
++        return try {
++            UUID.fromString(match.categoryId)
++        } catch (e: IllegalArgumentException) {
++            null
++        }
++    }
++
++    /**
++     * Call this when the user confirms a transaction with a merchant name
++     * and a chosen category — teaches the matcher for next time.
++     */
++    suspend fun learn(merchantText: String, categoryId: UUID) {
++        val pattern = merchantText.trim().uppercase(Locale.ROOT).take(40)
++        if (pattern.isBlank()) return
++
++        val current = getAll().filterNot { it.merchantPattern == pattern }
++        val updated = current + MerchantCategoryOverride(
++            merchantPattern = pattern,
++            categoryId = categoryId.toString()
++        )
++
++        dataStore.edit { prefs ->
++            prefs[key] = Json.encodeToString(updated)
++        }
++    }
++}
+diff --git a/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/domain/ParsedReceipt.kt b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/domain/ParsedReceipt.kt
+new file mode 100644
+index 000000000..ee0fc54bc
+--- /dev/null
++++ b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/domain/ParsedReceipt.kt
+@@ -0,0 +1,27 @@
++package com.ivy.receiptscanner.domain
++
++import java.math.BigDecimal
++import java.time.LocalDate
++
++/**
++ * Best-effort extraction from a receipt photo.
++ *
++ * Every field is nullable/has a confidence flag because OCR + parsing
++ * is never 100% reliable — the UI layer MUST let the user review and
++ * correct these values before a transaction is actually saved. Never
++ * auto-submit straight from this model.
++ */
++data class ParsedReceipt(
++    val rawText: String,
++    val merchantGuess: String?,
++    val totalAmountGuess: BigDecimal?,
++    val dateGuess: LocalDate?,
++    val currencyGuess: String?,
++    val confidence: ParseConfidence
++)
++
++enum class ParseConfidence {
++    HIGH,   // total + date + merchant all matched with strong signals
++    MEDIUM, // total found, but date or merchant missing/ambiguous
++    LOW     // little more than raw OCR text; user must fill in manually
++}
+diff --git a/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/ocr/ReceiptImageCapture.kt b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/ocr/ReceiptImageCapture.kt
+new file mode 100644
+index 000000000..34f969f25
+--- /dev/null
++++ b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/ocr/ReceiptImageCapture.kt
+@@ -0,0 +1,33 @@
++package com.ivy.receiptscanner.ocr
++
++import android.content.Context
++import android.net.Uri
++import androidx.core.content.FileProvider
++import java.io.File
++import java.text.SimpleDateFormat
++import java.util.Date
++import java.util.Locale
++
++/**
++ * Creates a content:// Uri (via FileProvider) pointing at a fresh temp file
++ * in the app's cache dir, for ActivityResultContracts.TakePicture() to write
++ * the full-resolution photo into.
++ *
++ * Using a FileProvider Uri (instead of ActivityResultContracts.TakePicturePreview,
++ * which asks the camera app to hand back a small in-memory thumbnail through
++ * the Binder/Intent extras) is the reliable approach: some OEM camera apps
++ * crash or refuse to return data at all when no output Uri is provided.
++ */
++object ReceiptImageCapture {
++
++    fun createTempImageUri(context: Context): Uri {
++        val dir = File(context.cacheDir, "receipt_scans").apply { mkdirs() }
++        val fileName = "receipt_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.jpg"
++        val file = File(dir, fileName)
++        return FileProvider.getUriForFile(
++            context,
++            "${context.packageName}.receiptscanner.fileprovider",
++            file
++        )
++    }
++}
+diff --git a/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/ocr/ReceiptOcrProcessor.kt b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/ocr/ReceiptOcrProcessor.kt
+new file mode 100644
+index 000000000..aaeb22c2e
+--- /dev/null
++++ b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/ocr/ReceiptOcrProcessor.kt
+@@ -0,0 +1,43 @@
++package com.ivy.receiptscanner.ocr
++
++import android.content.Context
++import android.graphics.Bitmap
++import android.net.Uri
++import com.google.mlkit.vision.common.InputImage
++import com.google.mlkit.vision.text.TextRecognition
++import com.google.mlkit.vision.text.latin.TextRecognizerOptions
++import kotlinx.coroutines.tasks.await
++import javax.inject.Inject
++import javax.inject.Singleton
++
++/**
++ * Thin wrapper around ML Kit's on-device text recognizer.
++ * Runs fully offline — no network call, no API key needed.
++ */
++@Singleton
++class ReceiptOcrProcessor @Inject constructor() {
++
++    private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
++
++    /**
++     * Preferred entry point: reads directly from a content:// / file:// Uri.
++     * ML Kit decodes and downsamples the image itself, so this avoids
++     * loading a full-resolution Bitmap into memory yourself (which is what
++     * was crashing on large gallery/camera photos via
++     * MediaStore.Images.Media.getBitmap()).
++     */
++    suspend fun extractText(context: Context, uri: Uri): String? {
++        val image = InputImage.fromFilePath(context, uri)
++        val result = recognizer.process(image).await()
++        val text = result.text.trim()
++        return text.ifEmpty { null }
++    }
++
++    /** Kept for cases where you already have a decoded Bitmap in hand. */
++    suspend fun extractText(bitmap: Bitmap): String? {
++        val image = InputImage.fromBitmap(bitmap, /* rotationDegrees = */ 0)
++        val result = recognizer.process(image).await()
++        val text = result.text.trim()
++        return text.ifEmpty { null }
++    }
++}
+diff --git a/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/parser/ReceiptParser.kt b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/parser/ReceiptParser.kt
+new file mode 100644
+index 000000000..095cec0ca
+--- /dev/null
++++ b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/parser/ReceiptParser.kt
+@@ -0,0 +1,156 @@
++package com.ivy.receiptscanner.parser
++
++import com.ivy.receiptscanner.domain.ParseConfidence
++import com.ivy.receiptscanner.domain.ParsedReceipt
++import java.math.BigDecimal
++import java.time.LocalDate
++import java.time.format.DateTimeFormatter
++import java.util.Locale
++import javax.inject.Inject
++import javax.inject.Singleton
++
++/**
++ * Rule-based receipt parser. No ML, no network calls — just regex
++ * heuristics tuned against common receipt layouts.
++ *
++ * This is intentionally conservative: it's much better to leave a
++ * field blank (so the user fills it in) than to guess wrong and have
++ * a wrong transaction silently saved.
++ */
++@Singleton
++class ReceiptParser @Inject constructor() {
++
++    fun parse(rawText: String): ParsedReceipt {
++        val lines = rawText.lines().map { it.trim() }.filter { it.isNotEmpty() }
++
++        val totalAmount = extractTotalAmount(lines)
++        val date = extractDate(lines)
++        val merchant = extractMerchant(lines)
++        val currency = extractCurrencySymbol(rawText)
++
++        val confidence = when {
++            totalAmount != null && date != null && merchant != null -> ParseConfidence.HIGH
++            totalAmount != null -> ParseConfidence.MEDIUM
++            else -> ParseConfidence.LOW
++        }
++
++        return ParsedReceipt(
++            rawText = rawText,
++            merchantGuess = merchant,
++            totalAmountGuess = totalAmount,
++            dateGuess = date,
++            currencyGuess = currency,
++            confidence = confidence
++        )
++    }
++
++    // ---- Total amount -------------------------------------------------
++
++    private val totalKeywords = listOf(
++        "total", "amount due", "grand total", "balance due", "total due", "amount"
++    )
++
++    // Matches things like: 12.99 | 1,234.99 | 12,99 (EU decimal comma) | $12.99
++    private val moneyRegex = Regex("""[-+]?\d{1,3}(?:[.,]\d{3})*[.,]\d{2}""")
++
++    private fun extractTotalAmount(lines: List<String>): BigDecimal? {
++        // Pass 1: look for a line containing a "total"-style keyword AND a money value.
++        for (line in lines) {
++            val lower = line.lowercase(Locale.getDefault())
++            if (totalKeywords.any { lower.contains(it) }) {
++                moneyRegex.find(line)?.let { return it.value.toNormalizedBigDecimal() }
++            }
++        }
++
++        // Pass 2: fallback — take the largest money-looking value anywhere in the
++        // receipt. Totals are usually the largest number on the page.
++        val allAmounts = lines.flatMap { line -> moneyRegex.findAll(line).map { it.value } }
++            .mapNotNull { it.toNormalizedBigDecimal() }
++
++        return allAmounts.maxOrNull()
++    }
++
++    private fun String.toNormalizedBigDecimal(): BigDecimal? = try {
++        // Normalize "1.234,99" or "1,234.99" -> "1234.99"
++        val cleaned = if (this.contains(",") && this.contains(".")) {
++            // whichever separator appears last is the decimal separator
++            if (this.lastIndexOf(',') > this.lastIndexOf('.')) {
++                this.replace(".", "").replace(",", ".")
++            } else {
++                this.replace(",", "")
++            }
++        } else if (this.contains(",")) {
++            // Only comma present — treat as decimal separator if exactly 2 digits follow
++            val parts = this.split(",")
++            if (parts.last().length == 2) this.replace(",", ".") else this.replace(",", "")
++        } else {
++            this
++        }
++        BigDecimal(cleaned)
++    } catch (e: NumberFormatException) {
++        null
++    }
++
++    // ---- Date -----------------------------------------------------------
++
++    private val dateFormatters = listOf(
++        DateTimeFormatter.ofPattern("dd/MM/yyyy"),
++        DateTimeFormatter.ofPattern("MM/dd/yyyy"),
++        DateTimeFormatter.ofPattern("dd-MM-yyyy"),
++        DateTimeFormatter.ofPattern("yyyy-MM-dd"),
++        DateTimeFormatter.ofPattern("dd.MM.yyyy"),
++        DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH),
++        DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH)
++    )
++
++    private val dateRegex = Regex(
++        """\b(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}\s?[A-Za-z]{3,9}\s?\d{2,4}|[A-Za-z]{3,9}\s?\d{1,2},?\s?\d{2,4})\b"""
++    )
++
++    private fun extractDate(lines: List<String>): LocalDate? {
++        for (line in lines) {
++            val match = dateRegex.find(line) ?: continue
++            for (formatter in dateFormatters) {
++                try {
++                    return LocalDate.parse(normalizeYear(match.value), formatter)
++                } catch (e: Exception) {
++                    // try next formatter
++                }
++            }
++        }
++        return null
++    }
++
++    private fun normalizeYear(dateStr: String): String {
++        // Expand 2-digit years like "24" -> "2024" for formatters expecting 4 digits.
++        // Simple heuristic only; skipped if it doesn't look like a 2-digit-year date.
++        return dateStr
++    }
++
++    // ---- Merchant name ----------------------------------------------------
++
++    private fun extractMerchant(lines: List<String>): String? {
++        // Heuristic: the merchant name is almost always one of the first
++        // few lines, and it's rarely purely numeric or a known boilerplate
++        // word like "receipt" / "invoice" / an address fragment.
++        val boilerplate = setOf("receipt", "invoice", "tax invoice", "order confirmation")
++        return lines.take(5).firstOrNull { line ->
++            val lower = line.lowercase(Locale.getDefault())
++            line.length in 3..40 &&
++                boilerplate.none { lower.contains(it) } &&
++                !moneyRegex.containsMatchIn(line) &&
++                line.any { it.isLetter() }
++        }
++    }
++
++    // ---- Currency ----------------------------------------------------------
++
++    private fun extractCurrencySymbol(rawText: String): String? {
++        return when {
++            rawText.contains("$") -> "USD"
++            rawText.contains("€") -> "EUR"
++            rawText.contains("£") -> "GBP"
++            else -> null
++        }
++    }
++}
+diff --git a/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/ui/ReceiptScannerScreen.kt b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/ui/ReceiptScannerScreen.kt
+new file mode 100644
+index 000000000..094b91f3f
+--- /dev/null
++++ b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/ui/ReceiptScannerScreen.kt
+@@ -0,0 +1,239 @@
++package com.ivy.receiptscanner.ui
++
++import android.Manifest
++import android.content.pm.PackageManager
++import android.net.Uri
++import androidx.activity.compose.rememberLauncherForActivityResult
++import androidx.activity.result.contract.ActivityResultContracts
++import androidx.compose.foundation.layout.*
++import androidx.compose.material3.*
++import androidx.compose.runtime.*
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.unit.dp
++import androidx.core.content.ContextCompat
++import androidx.lifecycle.viewmodel.compose.viewModel
++import com.ivy.data.model.CategoryId
++import com.ivy.receiptscanner.domain.ParsedReceipt
++import com.ivy.receiptscanner.ocr.ReceiptImageCapture
++import java.math.BigDecimal
++
++/**
++ * Entry point screen: user picks/takes a photo of a receipt, we OCR + parse it,
++ * then hand the pre-filled fields to `onConfirm` so the caller can push them
++ * into Ivy Wallet's existing Add/Edit Transaction flow.
++ *
++ * Wire this up wherever Ivy Wallet's "Add Transaction" entry point lives
++ * (e.g. an extra button/FAB option "Scan receipt").
++ */
++@Composable
++fun ReceiptScannerScreen(
++    onConfirm: (
++        merchant: String,
++        amount: BigDecimal?,
++        dateIso: String?,
++        categoryId: CategoryId?
++    ) -> Unit,
++    onCancel: () -> Unit,
++    viewModel: ReceiptScannerViewModel = viewModel()
++) {
++    val context = LocalContext.current
++    val state by viewModel.state.collectAsState()
++
++    // Holds the Uri we asked the camera app to write the full-res photo into.
++    // Must be remembered across the permission-request step, since the user
++    // may be asked for CAMERA permission before the camera intent even launches.
++    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
++
++    val takePictureLauncher = rememberLauncherForActivityResult(
++        ActivityResultContracts.TakePicture()
++    ) { success: Boolean ->
++        val uri = pendingCameraUri
++        if (success && uri != null) {
++            viewModel.onReceiptImageCaptured(context, uri)
++        }
++    }
++
++    val cameraPermissionLauncher = rememberLauncherForActivityResult(
++        ActivityResultContracts.RequestPermission()
++    ) { granted: Boolean ->
++        if (granted) {
++            val uri = ReceiptImageCapture.createTempImageUri(context)
++            pendingCameraUri = uri
++            takePictureLauncher.launch(uri)
++        }
++        // If denied, we simply stay on the Idle screen — no crash, no
++        // silent camera launch attempt without permission.
++    }
++
++    fun launchCamera() {
++        val hasPermission = ContextCompat.checkSelfPermission(
++            context, Manifest.permission.CAMERA
++        ) == PackageManager.PERMISSION_GRANTED
++
++        if (hasPermission) {
++            val uri = ReceiptImageCapture.createTempImageUri(context)
++            pendingCameraUri = uri
++            takePictureLauncher.launch(uri)
++        } else {
++            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
++        }
++    }
++
++    val pickImageLauncher = rememberLauncherForActivityResult(
++        ActivityResultContracts.GetContent()
++    ) { uri: Uri? ->
++        uri?.let { viewModel.onReceiptImageCaptured(context, it) }
++    }
++
++    Column(
++        modifier = Modifier
++            .fillMaxSize()
++            .padding(16.dp),
++        verticalArrangement = Arrangement.spacedBy(16.dp)
++    ) {
++        Text("Scan a receipt", style = MaterialTheme.typography.headlineSmall)
++
++        when (val s = state) {
++            is ReceiptScanState.Idle -> {
++                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
++                    Button(onClick = { launchCamera() }) {
++                        Text("Take photo")
++                    }
++                    OutlinedButton(onClick = { pickImageLauncher.launch("image/*") }) {
++                        Text("Choose from gallery")
++                    }
++                }
++            }
++
++            is ReceiptScanState.Processing -> {
++                Row(verticalAlignment = Alignment.CenterVertically) {
++                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
++                    Spacer(Modifier.width(12.dp))
++                    Text("Reading receipt…")
++                }
++            }
++
++            is ReceiptScanState.ReviewNeeded -> {
++                ReceiptReviewForm(
++                    receipt = s.receipt,
++                    suggestedCategoryId = s.suggestedCategoryId,
++                    suggestedCategoryName = s.suggestedCategoryName,
++                    onConfirm = { merchant, amount, dateIso, categoryId, acceptedSuggestion ->
++                        if (acceptedSuggestion && categoryId != null && merchant.isNotBlank()) {
++                            viewModel.learnCategory(merchant, categoryId)
++                        }
++                        onConfirm(merchant, amount, dateIso, categoryId)
++                    },
++                    onRetry = { viewModel.reset() }
++                )
++            }
++
++            is ReceiptScanState.Failed -> {
++                Text(s.reason, color = MaterialTheme.colorScheme.error)
++                Button(onClick = { viewModel.reset() }) {
++                    Text("Try again")
++                }
++            }
++        }
++
++        TextButton(onClick = onCancel) {
++            Text("Cancel")
++        }
++    }
++}
++
++/**
++ * Review/edit form shown after OCR + parsing. ALWAYS shown before saving —
++ * OCR/parsing is a best guess, not ground truth. Same goes for the
++ * auto-matched category: it's a checkable suggestion, not an auto-apply.
++ */
++@Composable
++private fun ReceiptReviewForm(
++    receipt: ParsedReceipt,
++    suggestedCategoryId: CategoryId?,
++    suggestedCategoryName: String?,
++    onConfirm: (
++        merchant: String,
++        amount: BigDecimal?,
++        dateIso: String?,
++        categoryId: CategoryId?,
++        acceptedSuggestion: Boolean
++    ) -> Unit,
++    onRetry: () -> Unit
++) {
++    var merchant by remember { mutableStateOf(receipt.merchantGuess.orEmpty()) }
++    var amountText by remember {
++        mutableStateOf(receipt.totalAmountGuess?.toPlainString().orEmpty())
++    }
++    var useSuggestedCategory by remember(suggestedCategoryId) {
++        mutableStateOf(suggestedCategoryId != null)
++    }
++
++    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
++        Text(
++            "Confirm details (auto-filled, edit anything that's wrong)",
++            style = MaterialTheme.typography.bodyMedium
++        )
++
++        OutlinedTextField(
++            value = merchant,
++            onValueChange = { merchant = it },
++            label = { Text("Merchant") },
++            modifier = Modifier.fillMaxWidth()
++        )
++
++        OutlinedTextField(
++            value = amountText,
++            onValueChange = { amountText = it },
++            label = { Text("Amount") },
++            modifier = Modifier.fillMaxWidth()
++        )
++
++        Text(
++            "Date detected: ${receipt.dateGuess ?: "not found — please set manually"}",
++            style = MaterialTheme.typography.bodySmall
++        )
++
++        if (suggestedCategoryId != null && suggestedCategoryName != null) {
++            Row(verticalAlignment = Alignment.CenterVertically) {
++                Checkbox(
++                    checked = useSuggestedCategory,
++                    onCheckedChange = { useSuggestedCategory = it }
++                )
++                Text("Use category: $suggestedCategoryName")
++            }
++        } else {
++            Text(
++                "No matching category found — you'll be able to pick one on the next screen.",
++                style = MaterialTheme.typography.bodySmall
++            )
++        }
++
++        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
++            Button(onClick = {
++                val amount = amountText.toBigDecimalOrNull()
++                val categoryId = if (useSuggestedCategory) suggestedCategoryId else null
++                onConfirm(
++                    merchant,
++                    amount,
++                    receipt.dateGuess?.toString(),
++                    categoryId,
++                    useSuggestedCategory
++                )
++            }) {
++                Text("Add transaction")
++            }
++            OutlinedButton(onClick = onRetry) {
++                Text("Retake photo")
++            }
++        }
++    }
++}
++
++private fun String.toBigDecimalOrNull(): BigDecimal? = try {
++    BigDecimal(this)
++} catch (e: NumberFormatException) {
++    null
++}
+diff --git a/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/ui/ReceiptScannerScreenRoute.kt b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/ui/ReceiptScannerScreenRoute.kt
+new file mode 100644
+index 000000000..7f7364eae
+--- /dev/null
++++ b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/ui/ReceiptScannerScreenRoute.kt
+@@ -0,0 +1,45 @@
++package com.ivy.receiptscanner.ui
++
++import androidx.compose.foundation.layout.BoxWithConstraintsScope
++import androidx.compose.runtime.Composable
++import com.ivy.base.model.TransactionType
++import com.ivy.navigation.EditTransactionScreen
++import com.ivy.navigation.navigation
++import java.time.Instant
++import java.time.LocalDate
++import java.time.ZoneId
++
++/**
++ * Registers in IvyNavGraph as the destination for `ReceiptScannerScreen`.
++ * Handles the actual navigation: on confirm, opens the existing Add
++ * Transaction screen pre-filled with the scanned values so the user can
++ * do a final check before saving. Nothing is written to the database here.
++ */
++@Composable
++fun BoxWithConstraintsScope.ReceiptScannerScreenRoute() {
++    val nav = navigation()
++
++    ReceiptScannerScreen(
++        onConfirm = { merchant, amount, dateIso, categoryId ->
++            nav.navigateTo(
++                EditTransactionScreen(
++                    initialTransactionId = null,
++                    type = TransactionType.EXPENSE,
++                    categoryId = categoryId?.value,
++                    initialAmount = amount?.toDouble(),
++                    initialTitle = merchant.ifBlank { null },
++                    initialDateTime = dateIso?.toInstantOrNull()
++                )
++            )
++        },
++        onCancel = { nav.back() }
++    )
++}
++
++private fun String.toInstantOrNull(): Instant? = try {
++    LocalDate.parse(this)
++        .atStartOfDay(ZoneId.systemDefault())
++        .toInstant()
++} catch (e: Exception) {
++    null
++}
+diff --git a/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/ui/ReceiptScannerViewModel.kt b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/ui/ReceiptScannerViewModel.kt
+new file mode 100644
+index 000000000..79277a9d1
+--- /dev/null
++++ b/feature/receipt-scanner/src/main/java/com/ivy/receiptscanner/ui/ReceiptScannerViewModel.kt
+@@ -0,0 +1,98 @@
++package com.ivy.receiptscanner.ui
++
++import android.content.Context
++import android.net.Uri
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import com.ivy.data.model.CategoryId
++import com.ivy.data.repository.CategoryRepository
++import com.ivy.receiptscanner.category.MerchantCategoryMatcher
++import com.ivy.receiptscanner.domain.ParsedReceipt
++import com.ivy.receiptscanner.ocr.ReceiptOcrProcessor
++import com.ivy.receiptscanner.parser.ReceiptParser
++import dagger.hilt.android.lifecycle.HiltViewModel
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import javax.inject.Inject
++
++sealed interface ReceiptScanState {
++    data object Idle : ReceiptScanState
++    data object Processing : ReceiptScanState
++    data class ReviewNeeded(
++        val receipt: ParsedReceipt,
++        // Auto-matched from the merchant name; null if nothing matched.
++        // Shown as a suggestion on the review screen — never silently
++        // applied without the user seeing it first.
++        val suggestedCategoryId: CategoryId?,
++        val suggestedCategoryName: String?
++    ) : ReceiptScanState
++    data class Failed(val reason: String) : ReceiptScanState
++}
++
++/**
++ * Drives the "scan receipt -> OCR -> parse -> match category -> review" flow.
++ *
++ * IMPORTANT: this ViewModel intentionally does NOT save a transaction
++ * itself. It only produces a ParsedReceipt (+ a category suggestion) for
++ * a review screen to show. Wire the "confirm" action on that review screen
++ * to Ivy Wallet's existing AddEditTransaction ViewModel/use case, pre-filled
++ * with these values. Never auto-save straight from OCR output.
++ */
++@HiltViewModel
++class ReceiptScannerViewModel @Inject constructor(
++    private val ocrProcessor: ReceiptOcrProcessor,
++    private val parser: ReceiptParser,
++    private val categoryMatcher: MerchantCategoryMatcher,
++    private val categoryRepository: CategoryRepository
++) : ViewModel() {
++
++    private val _state = MutableStateFlow<ReceiptScanState>(ReceiptScanState.Idle)
++    val state: StateFlow<ReceiptScanState> = _state.asStateFlow()
++
++    fun onReceiptImageCaptured(context: Context, uri: Uri) {
++        _state.value = ReceiptScanState.Processing
++        viewModelScope.launch {
++            val text = try {
++                ocrProcessor.extractText(context, uri)
++            } catch (e: Exception) {
++                _state.value = ReceiptScanState.Failed("Couldn't read the image: ${e.message}")
++                return@launch
++            }
++
++            if (text.isNullOrBlank()) {
++                _state.value = ReceiptScanState.Failed(
++                    "No text found. Try a clearer, well-lit photo of the receipt."
++                )
++                return@launch
++            }
++
++            val parsed = parser.parse(text)
++
++            // Match on the merchant guess first; fall back to the raw OCR
++            // text (e.g. dictionary keywords may appear elsewhere on the
++            // receipt even if merchant-line detection missed).
++            val matchInput = parsed.merchantGuess ?: parsed.rawText
++            val categoryId = categoryMatcher.matchCategory(matchInput)
++            val categoryName = categoryId?.let { categoryRepository.findById(it)?.name?.value }
++
++            _state.value = ReceiptScanState.ReviewNeeded(
++                receipt = parsed,
++                suggestedCategoryId = categoryId,
++                suggestedCategoryName = categoryName
++            )
++        }
++    }
++
++    /** Teach the matcher from what the user actually confirmed. */
++    fun learnCategory(merchantText: String, categoryId: CategoryId) {
++        viewModelScope.launch {
++            categoryMatcher.learn(merchantText, categoryId)
++        }
++    }
++
++    fun reset() {
++        _state.value = ReceiptScanState.Idle
++    }
++}
+diff --git a/feature/receipt-scanner/src/main/res/xml/receipt_scanner_file_paths.xml b/feature/receipt-scanner/src/main/res/xml/receipt_scanner_file_paths.xml
+new file mode 100644
+index 000000000..ae85ee52a
+--- /dev/null
++++ b/feature/receipt-scanner/src/main/res/xml/receipt_scanner_file_paths.xml
+@@ -0,0 +1,5 @@
++<?xml version="1.0" encoding="utf-8"?>
++<paths xmlns:android="http://schemas.android.com/apk/res/android">
++    <!-- Matches File(context.cacheDir, "receipt_scans/...") used in ReceiptImageCapture.kt -->
++    <cache-path name="receipt_scans" path="receipt_scans/" />
++</paths>
+diff --git a/feature/receipt-scanner/src/test/java/com/ivy/receiptscanner/parser/ReceiptParserTest.kt b/feature/receipt-scanner/src/test/java/com/ivy/receiptscanner/parser/ReceiptParserTest.kt
+new file mode 100644
+index 000000000..504404562
+--- /dev/null
++++ b/feature/receipt-scanner/src/test/java/com/ivy/receiptscanner/parser/ReceiptParserTest.kt
+@@ -0,0 +1,89 @@
++package com.ivy.receiptscanner.parser
++
++import com.ivy.receiptscanner.domain.ParseConfidence
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNotNull
++import org.junit.Test
++import java.math.BigDecimal
++
++class ReceiptParserTest {
++
++    private val parser = ReceiptParser()
++
++    @Test
++    fun `extracts total amount from keyword line`() {
++        val text = """
++            Trader Joe's
++            123 Main St
++            Milk           3.49
++            Bread          2.99
++            TOTAL         12.48
++            Thank you!
++        """.trimIndent()
++
++        val result = parser.parse(text)
++
++        assertEquals(BigDecimal("12.48"), result.totalAmountGuess)
++    }
++
++    @Test
++    fun `falls back to largest amount when no total keyword found`() {
++        val text = """
++            Corner Cafe
++            Coffee   4.50
++            Muffin   3.25
++        """.trimIndent()
++
++        val result = parser.parse(text)
++
++        assertEquals(BigDecimal("4.50"), result.totalAmountGuess)
++    }
++
++    @Test
++    fun `handles european decimal comma format`() {
++        val text = """
++            Bakkerij Jansen
++            Totaal   12,50
++        """.trimIndent()
++
++        val result = parser.parse(text)
++
++        assertEquals(BigDecimal("12.50"), result.totalAmountGuess)
++    }
++
++    @Test
++    fun `guesses merchant from first non-boilerplate line`() {
++        val text = """
++            Whole Foods Market
++            RECEIPT
++            Total 20.00
++        """.trimIndent()
++
++        val result = parser.parse(text)
++
++        assertEquals("Whole Foods Market", result.merchantGuess)
++    }
++
++    @Test
++    fun `confidence is HIGH when merchant, date and amount all found`() {
++        val text = """
++            Joe's Diner
++            2024-03-15
++            Total 15.00
++        """.trimIndent()
++
++        val result = parser.parse(text)
++
++        assertEquals(ParseConfidence.HIGH, result.confidence)
++        assertNotNull(result.dateGuess)
++    }
++
++    @Test
++    fun `confidence is LOW when nothing useful found`() {
++        val text = "garbled unreadable text with no numbers"
++
++        val result = parser.parse(text)
++
++        assertEquals(ParseConfidence.LOW, result.confidence)
++    }
++}
+diff --git a/settings.gradle.kts b/settings.gradle.kts
+index aee525b63..e9a5eaeac 100644
+--- a/settings.gradle.kts
++++ b/settings.gradle.kts
+@@ -36,6 +36,7 @@ include(":feature:piechart")
+ include(":feature:planned-payments")
+ include(":feature:poll:impl")
+ include(":feature:poll:public")
++include(":feature:receipt-scanner")
+ include(":feature:releases")
+ include(":feature:reports")
+ include(":feature:search")
+diff --git a/shared/ui/core/src/main/res/values/strings.xml b/shared/ui/core/src/main/res/values/strings.xml
+index 72bfa43dc..8b3dd9c47 100644
+--- a/shared/ui/core/src/main/res/values/strings.xml
++++ b/shared/ui/core/src/main/res/values/strings.xml
+@@ -138,6 +138,7 @@
+     <string name="transactions">transactions</string>
+     <string name="home">Home</string>
+     <string name="add_planned_payment">Add planned payment</string>
++    <string name="scan_receipt">Scan receipt</string>
+     <string name="add_income_uppercase">ADD INCOME</string>
+     <string name="add_expense_uppercase">ADD EXPENSE</string>
+     <string name="account_transfer">ACCOUNT TRANSFER</string>
+diff --git a/shared/ui/navigation/src/main/java/com/ivy/navigation/Screens.kt b/shared/ui/navigation/src/main/java/com/ivy/navigation/Screens.kt
+index 6258a7427..a793fd783 100644
+--- a/shared/ui/navigation/src/main/java/com/ivy/navigation/Screens.kt
++++ b/shared/ui/navigation/src/main/java/com/ivy/navigation/Screens.kt
+@@ -28,12 +28,22 @@ data class EditTransactionScreen(
+     val type: TransactionType,
+     // extras
+     val accountId: UUID? = null,
+-    val categoryId: UUID? = null
++    val categoryId: UUID? = null,
++    // pre-fill values coming from the receipt scanner (or any future source).
++    // Only used when initialTransactionId == null (i.e. creating a new transaction).
++    val initialAmount: Double? = null,
++    val initialTitle: String? = null,
++    val initialDateTime: java.time.Instant? = null
+ ) : Screen {
+     override val isLegacy: Boolean
+         get() = true
+ }
+ 
++data object ReceiptScannerScreen : Screen {
++    override val isLegacy: Boolean
++        get() = false
++}
++
+ data class TransactionsScreen(
+     val accountId: UUID? = null,
+     val categoryId: UUID? = null,

@@ -138,6 +138,7 @@
     <string name="transactions">transactions</string>
     <string name="home">Home</string>
     <string name="add_planned_payment">Add planned payment</string>
+    <string name="scan_receipt">Scan receipt</string>
     <string name="add_income_uppercase">ADD INCOME</string>
     <string name="add_expense_uppercase">ADD EXPENSE</string>
     <string name="account_transfer">ACCOUNT TRANSFER</string>

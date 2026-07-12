@@ -36,6 +36,7 @@ import com.ivy.navigation.OnboardingScreen
 import com.ivy.navigation.PieChartStatisticScreen
 import com.ivy.navigation.PlannedPaymentsScreen
 import com.ivy.navigation.PollScreen
+import com.ivy.navigation.ReceiptScannerScreen
 import com.ivy.navigation.ReleasesScreen
 import com.ivy.navigation.ReportScreen
 import com.ivy.navigation.Screen
@@ -47,6 +48,7 @@ import com.ivy.piechart.PieChartStatisticScreen
 import com.ivy.planned.edit.EditPlannedScreen
 import com.ivy.planned.list.PlannedPaymentsScreen
 import com.ivy.poll.impl.ui.PollScreen
+import com.ivy.receiptscanner.ui.ReceiptScannerScreenRoute
 import com.ivy.releases.ReleasesScreenImpl
 import com.ivy.reports.ReportScreen
 import com.ivy.search.SearchScreen
@@ -68,6 +70,7 @@ fun BoxWithConstraintsScope.IvyNavGraph(screen: Screen?) {
         is OnboardingScreen -> OnboardingScreen(screen = screen)
         is ExchangeRatesScreen -> ExchangeRatesScreen()
         is EditTransactionScreen -> EditTransactionScreen(screen = screen)
+        ReceiptScannerScreen -> ReceiptScannerScreenRoute()
         is TransactionsScreen -> TransactionsScreen(screen = screen)
         is PieChartStatisticScreen -> PieChartStatisticScreen(screen = screen)
         is CategoriesScreen -> CategoriesScreen(screen = screen)

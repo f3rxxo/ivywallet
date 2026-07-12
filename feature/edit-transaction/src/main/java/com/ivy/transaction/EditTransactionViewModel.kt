@@ -174,8 +174,10 @@ class EditTransactionViewModel @Inject constructor(
                 ),
                 categoryId = screen.categoryId,
                 type = screen.type,
-                amount = BigDecimal.ZERO,
-                toAmount = BigDecimal.ZERO
+                amount = screen.initialAmount?.toBigDecimal() ?: BigDecimal.ZERO,
+                toAmount = screen.initialAmount?.toBigDecimal() ?: BigDecimal.ZERO,
+                title = screen.initialTitle,
+                dateTime = screen.initialDateTime
             )
 
             tags = tagList.await()

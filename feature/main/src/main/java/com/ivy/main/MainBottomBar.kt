@@ -82,6 +82,7 @@ fun BoxWithConstraintsScope.BottomBar(
     onAddExpense: () -> Unit,
     onAddTransfer: () -> Unit,
     onAddPlannedPayment: () -> Unit,
+    onScanReceipt: () -> Unit,
 
     showAddAccountModal: () -> Unit,
 ) {
@@ -174,7 +175,8 @@ fun BoxWithConstraintsScope.BottomBar(
         onAddIncome = onAddIncome,
         onAddExpense = onAddExpense,
         onAddTransfer = onAddTransfer,
-        onAddPlannedPayment = onAddPlannedPayment
+        onAddPlannedPayment = onAddPlannedPayment,
+        onScanReceipt = onScanReceipt
     )
 
     var dragOffset by remember {
@@ -277,6 +279,7 @@ private fun TransactionButtons(
     onAddExpense: () -> Unit,
     onAddTransfer: () -> Unit,
     onAddPlannedPayment: () -> Unit,
+    onScanReceipt: () -> Unit,
 ) {
     val ivyContext = ivyWalletCtx()
 
@@ -312,6 +315,28 @@ private fun TransactionButtons(
             solidBackground = true
         ) {
             onAddPlannedPayment()
+        }
+
+        IvyOutlinedButton(
+            modifier = Modifier
+                .layout { measurable, constraints ->
+                    val placealbe = measurable.measure(constraints)
+                    layout(placealbe.width, placealbe.height) {
+                        placealbe.place(
+                            x = ivyContext.screenWidth / 2 - placealbe.width / 2,
+                            y = buttonCenterY.roundToInt() - 48.dp.roundToPx() - placealbe.height -
+                                FAB_BUTTON_SIZE.roundToPx() - placealbe.height - 12.dp.roundToPx()
+                        )
+                    }
+                }
+                .padding(horizontal = 8.dp)
+                .alpha(buttonsShownPercent)
+                .zIndex(200f),
+            iconStart = R.drawable.ic_vue_money_receipt_items,
+            text = stringResource(R.string.scan_receipt),
+            solidBackground = true
+        ) {
+            onScanReceipt()
         }
 
         // Add INCOME ------------------------------------------------------------------------------

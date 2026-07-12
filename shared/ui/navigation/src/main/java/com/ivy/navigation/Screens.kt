@@ -28,10 +28,20 @@ data class EditTransactionScreen(
     val type: TransactionType,
     // extras
     val accountId: UUID? = null,
-    val categoryId: UUID? = null
+    val categoryId: UUID? = null,
+    // pre-fill values coming from the receipt scanner (or any future source).
+    // Only used when initialTransactionId == null (i.e. creating a new transaction).
+    val initialAmount: Double? = null,
+    val initialTitle: String? = null,
+    val initialDateTime: java.time.Instant? = null
 ) : Screen {
     override val isLegacy: Boolean
         get() = true
+}
+
+data object ReceiptScannerScreen : Screen {
+    override val isLegacy: Boolean
+        get() = false
 }
 
 data class TransactionsScreen(
