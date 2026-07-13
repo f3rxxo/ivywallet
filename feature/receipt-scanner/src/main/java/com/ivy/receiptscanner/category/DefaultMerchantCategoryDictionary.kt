@@ -17,7 +17,7 @@ object DefaultMerchantCategoryDictionary {
     private val rules: List<Pair<String, String>> = listOf(
         // Groceries
         "ALDI" to "Groceries",
-        "LIDL" to "Groceries",
+        "MARIANOS" to "Groceries",
         "WALMART" to "Groceries",
         "TESCO" to "Groceries",
         "TRADER JOE" to "Groceries",
@@ -27,6 +27,7 @@ object DefaultMerchantCategoryDictionary {
         "COSTCO" to "Groceries",
         "CARREFOUR" to "Groceries",
         "SAINSBURY" to "Groceries",
+        
 
         // Dining / coffee
         "STARBUCKS" to "Dining",

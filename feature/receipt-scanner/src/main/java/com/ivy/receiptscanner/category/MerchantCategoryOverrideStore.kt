@@ -37,7 +37,7 @@ class MerchantCategoryOverrideStore @Inject constructor(
     suspend fun getAll(): List<MerchantCategoryOverride> {
         val raw = dataStore.data.first()[key] ?: return emptyList()
         return try {
-            Json.decodeFromString(raw)
+            Json.decodeFromString<List<MerchantCategoryOverride>>(raw)
         } catch (e: Exception) {
             emptyList()
         }
@@ -68,8 +68,9 @@ class MerchantCategoryOverrideStore @Inject constructor(
             categoryId = categoryId.toString()
         )
 
+        val serialized = Json.encodeToString<List<MerchantCategoryOverride>>(updated)
         dataStore.edit { prefs ->
-            prefs[key] = Json.encodeToString(updated)
+            prefs[key] = serialized
         }
     }
 }
