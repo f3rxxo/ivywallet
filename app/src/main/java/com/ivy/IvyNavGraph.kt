@@ -36,6 +36,7 @@ import com.ivy.navigation.OnboardingScreen
 import com.ivy.navigation.PieChartStatisticScreen
 import com.ivy.navigation.PlannedPaymentsScreen
 import com.ivy.navigation.PollScreen
+import com.ivy.navigation.NotificationListenerSettingsScreen
 import com.ivy.navigation.ReceiptScannerScreen
 import com.ivy.navigation.ReleasesScreen
 import com.ivy.navigation.ReportScreen
@@ -48,6 +49,7 @@ import com.ivy.piechart.PieChartStatisticScreen
 import com.ivy.planned.edit.EditPlannedScreen
 import com.ivy.planned.list.PlannedPaymentsScreen
 import com.ivy.poll.impl.ui.PollScreen
+import com.ivy.receiptscanner.notification.NotificationListenerSettingsScreen
 import com.ivy.receiptscanner.ui.ReceiptScannerScreenRoute
 import com.ivy.releases.ReleasesScreenImpl
 import com.ivy.reports.ReportScreen
@@ -61,6 +63,8 @@ import com.ivy.transactions.TransactionsScreen
 @Composable
 @Suppress("CyclomaticComplexMethod", "FunctionNaming")
 fun BoxWithConstraintsScope.IvyNavGraph(screen: Screen?) {
+    val nav = navigation()
+
     when (screen) {
         null -> {
             // show nothing
@@ -71,6 +75,9 @@ fun BoxWithConstraintsScope.IvyNavGraph(screen: Screen?) {
         is ExchangeRatesScreen -> ExchangeRatesScreen()
         is EditTransactionScreen -> EditTransactionScreen(screen = screen)
         ReceiptScannerScreen -> ReceiptScannerScreenRoute()
+        NotificationListenerSettingsScreen -> NotificationListenerSettingsScreen(
+            onBack = { nav.back() }
+        )
         is TransactionsScreen -> TransactionsScreen(screen = screen)
         is PieChartStatisticScreen -> PieChartStatisticScreen(screen = screen)
         is CategoriesScreen -> CategoriesScreen(screen = screen)

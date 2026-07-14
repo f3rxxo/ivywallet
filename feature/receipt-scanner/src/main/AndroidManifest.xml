@@ -25,6 +25,20 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/receipt_scanner_file_paths" />
         </provider>
+
+        <!-- Reads notification content from the bank/payment apps you pick in
+             NotificationListenerSettingsScreen. Requires the user to manually
+             grant "Notification access" in system Settings — this can NOT be
+             requested via a normal runtime permission dialog. -->
+        <service
+            android:name="com.ivy.receiptscanner.notification.BankNotificationListenerService"
+            android:exported="true"
+            android:label="Ivy Wallet receipt scanner"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

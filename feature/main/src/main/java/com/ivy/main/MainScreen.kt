@@ -4,6 +4,7 @@ import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
@@ -23,9 +24,14 @@ import com.ivy.navigation.EditTransactionScreen
 import com.ivy.navigation.MainScreen
 import com.ivy.navigation.ReceiptScannerScreen
 import com.ivy.navigation.navigation
+import com.ivy.receiptscanner.notification.PendingScanViewModel
 import com.ivy.wallet.domain.deprecated.logic.model.CreateAccountData
 import com.ivy.wallet.ui.theme.modal.edit.AccountModal
 import com.ivy.wallet.ui.theme.modal.edit.AccountModalData
+import java.math.BigDecimal
+import java.time.LocalDate
+import java.time.ZoneId
+import java.util.UUID
 
 @ExperimentalAnimationApi
 @ExperimentalFoundationApi
@@ -37,6 +43,44 @@ fun BoxWithConstraintsScope.MainScreen(screen: MainScreen) {
 
     onScreenStart {
         viewModel.start(screen)
+    }
+
+    // One-time check on app open: did BankNotificationListenerService leave
+    // a pending transaction detected from a banking-app notification while
+    // the app was closed? If so, open it pre-filled for review — same
+    // review-before-save flow as scanning a receipt. Nothing is ever
+    // auto-saved from here.
+    val nav = navigation()
+    val pendingScanViewModel: PendingScanViewModel = viewModel()
+    LaunchedEffect(Unit) {
+        val pending = pendingScanViewModel.consumePending() ?: return@LaunchedEffect
+        val type = try {
+            TransactionType.valueOf(pending.type)
+        } catch (e: IllegalArgumentException) {
+            TransactionType.EXPENSE
+        }
+        nav.navigateTo(
+            EditTransactionScreen(
+                initialTransactionId = null,
+                type = type,
+                categoryId = pending.categoryId?.let {
+                    try {
+                        UUID.fromString(it)
+                    } catch (e: IllegalArgumentException) {
+                        null
+                    }
+                },
+                initialAmount = pending.amount?.toBigDecimalOrNull()?.toDouble(),
+                initialTitle = pending.merchant,
+                initialDateTime = pending.dateIso?.let { dateIso ->
+                    try {
+                        LocalDate.parse(dateIso).atStartOfDay(ZoneId.systemDefault()).toInstant()
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+            )
+        )
     }
 
     val ivyContext = ivyWalletCtx()

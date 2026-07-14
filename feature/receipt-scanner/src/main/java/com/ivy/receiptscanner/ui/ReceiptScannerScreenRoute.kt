@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.runtime.Composable
 import com.ivy.base.model.TransactionType
 import com.ivy.navigation.EditTransactionScreen
+import com.ivy.navigation.NotificationListenerSettingsScreen
 import com.ivy.navigation.navigation
 import java.time.Instant
 import java.time.LocalDate
@@ -20,19 +21,21 @@ fun BoxWithConstraintsScope.ReceiptScannerScreenRoute() {
     val nav = navigation()
 
     ReceiptScannerScreen(
-        onConfirm = { merchant, amount, dateIso, categoryId ->
+        onConfirm = { merchant, amount, dateIso, categoryId, type ->
             nav.navigateTo(
                 EditTransactionScreen(
                     initialTransactionId = null,
-                    type = TransactionType.EXPENSE,
-                    categoryId = categoryId?.value,
+                    type = type,
+                    // Category only makes sense for expense/income, not transfers.
+                    categoryId = if (type == TransactionType.TRANSFER) null else categoryId?.value,
                     initialAmount = amount?.toDouble(),
                     initialTitle = merchant.ifBlank { null },
                     initialDateTime = dateIso?.toInstantOrNull()
                 )
             )
         },
-        onCancel = { nav.back() }
+        onCancel = { nav.back() },
+        onOpenNotificationSettings = { nav.navigateTo(NotificationListenerSettingsScreen) }
     )
 }
 

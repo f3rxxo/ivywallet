@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ivy.base.model.TransactionType
 import com.ivy.data.model.CategoryId
 import com.ivy.receiptscanner.domain.ParsedReceipt
 import com.ivy.receiptscanner.ocr.ReceiptImageCapture
@@ -33,9 +34,11 @@ fun ReceiptScannerScreen(
         merchant: String,
         amount: BigDecimal?,
         dateIso: String?,
-        categoryId: CategoryId?
+        categoryId: CategoryId?,
+        type: TransactionType
     ) -> Unit,
     onCancel: () -> Unit,
+    onOpenNotificationSettings: () -> Unit,
     viewModel: ReceiptScannerViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -120,11 +123,12 @@ fun ReceiptScannerScreen(
                     receipt = s.receipt,
                     suggestedCategoryId = s.suggestedCategoryId,
                     suggestedCategoryName = s.suggestedCategoryName,
-                    onConfirm = { merchant, amount, dateIso, categoryId, acceptedSuggestion ->
+                    suggestedType = s.suggestedType,
+                    onConfirm = { merchant, amount, dateIso, categoryId, acceptedSuggestion, type ->
                         if (acceptedSuggestion && categoryId != null && merchant.isNotBlank()) {
                             viewModel.learnCategory(merchant, categoryId)
                         }
-                        onConfirm(merchant, amount, dateIso, categoryId)
+                        onConfirm(merchant, amount, dateIso, categoryId, type)
                     },
                     onRetry = { viewModel.reset() }
                 )
@@ -136,6 +140,10 @@ fun ReceiptScannerScreen(
                     Text("Try again")
                 }
             }
+        }
+
+        TextButton(onClick = onOpenNotificationSettings) {
+            Text("Auto-detect from bank notifications")
         }
 
         TextButton(onClick = onCancel) {
@@ -154,12 +162,14 @@ private fun ReceiptReviewForm(
     receipt: ParsedReceipt,
     suggestedCategoryId: CategoryId?,
     suggestedCategoryName: String?,
+    suggestedType: TransactionType,
     onConfirm: (
         merchant: String,
         amount: BigDecimal?,
         dateIso: String?,
         categoryId: CategoryId?,
-        acceptedSuggestion: Boolean
+        acceptedSuggestion: Boolean,
+        type: TransactionType
     ) -> Unit,
     onRetry: () -> Unit
 ) {
@@ -170,12 +180,35 @@ private fun ReceiptReviewForm(
     var useSuggestedCategory by remember(suggestedCategoryId) {
         mutableStateOf(suggestedCategoryId != null)
     }
+    var selectedType by remember(suggestedType) { mutableStateOf(suggestedType) }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             "Confirm details (auto-filled, edit anything that's wrong)",
             style = MaterialTheme.typography.bodyMedium
         )
+
+        // Type selector — always shown and editable. Bank notification
+        // wording ("transfer", "payment", "deposit") is a hint, not ground
+        // truth, so this defaults to the guess but is never silently applied.
+        Column {
+            Text("Type", style = MaterialTheme.typography.labelMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TransactionType.entries.forEach { type ->
+                    FilterChip(
+                        selected = selectedType == type,
+                        onClick = { selectedType = type },
+                        label = { Text(type.name.lowercase().replaceFirstChar { it.uppercase() }) }
+                    )
+                }
+            }
+            if (selectedType == TransactionType.TRANSFER) {
+                Text(
+                    "You'll be asked to pick the destination account on the next screen.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
 
         OutlinedTextField(
             value = merchant,
@@ -196,19 +229,21 @@ private fun ReceiptReviewForm(
             style = MaterialTheme.typography.bodySmall
         )
 
-        if (suggestedCategoryId != null && suggestedCategoryName != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = useSuggestedCategory,
-                    onCheckedChange = { useSuggestedCategory = it }
+        if (selectedType == TransactionType.EXPENSE) {
+            if (suggestedCategoryId != null && suggestedCategoryName != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = useSuggestedCategory,
+                        onCheckedChange = { useSuggestedCategory = it }
+                    )
+                    Text("Use category: $suggestedCategoryName")
+                }
+            } else {
+                Text(
+                    "No matching category found — you'll be able to pick one on the next screen.",
+                    style = MaterialTheme.typography.bodySmall
                 )
-                Text("Use category: $suggestedCategoryName")
             }
-        } else {
-            Text(
-                "No matching category found — you'll be able to pick one on the next screen.",
-                style = MaterialTheme.typography.bodySmall
-            )
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -220,7 +255,8 @@ private fun ReceiptReviewForm(
                     amount,
                     receipt.dateGuess?.toString(),
                     categoryId,
-                    useSuggestedCategory
+                    useSuggestedCategory,
+                    selectedType
                 )
             }) {
                 Text("Add transaction")

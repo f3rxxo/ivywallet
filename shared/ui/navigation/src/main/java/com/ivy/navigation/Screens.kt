@@ -44,6 +44,11 @@ data object ReceiptScannerScreen : Screen {
         get() = false
 }
 
+data object NotificationListenerSettingsScreen : Screen {
+    override val isLegacy: Boolean
+        get() = false
+}
+
 data class TransactionsScreen(
     val accountId: UUID? = null,
     val categoryId: UUID? = null,

@@ -4,12 +4,14 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ivy.base.model.TransactionType
 import com.ivy.data.model.CategoryId
 import com.ivy.data.repository.CategoryRepository
 import com.ivy.receiptscanner.category.MerchantCategoryMatcher
 import com.ivy.receiptscanner.domain.ParsedReceipt
 import com.ivy.receiptscanner.ocr.ReceiptOcrProcessor
 import com.ivy.receiptscanner.parser.ReceiptParser
+import com.ivy.receiptscanner.parser.TransactionTypeClassifier
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,24 +28,28 @@ sealed interface ReceiptScanState {
         // Shown as a suggestion on the review screen — never silently
         // applied without the user seeing it first.
         val suggestedCategoryId: CategoryId?,
-        val suggestedCategoryName: String?
+        val suggestedCategoryName: String?,
+        // Guessed from keywords in the text (works for receipts AND
+        // bank/payment app notification screenshots). Always editable.
+        val suggestedType: TransactionType
     ) : ReceiptScanState
     data class Failed(val reason: String) : ReceiptScanState
 }
 
 /**
- * Drives the "scan receipt -> OCR -> parse -> match category -> review" flow.
+ * Drives the "scan receipt -> OCR -> parse -> classify -> match category -> review" flow.
  *
  * IMPORTANT: this ViewModel intentionally does NOT save a transaction
- * itself. It only produces a ParsedReceipt (+ a category suggestion) for
- * a review screen to show. Wire the "confirm" action on that review screen
- * to Ivy Wallet's existing AddEditTransaction ViewModel/use case, pre-filled
+ * itself. It only produces a ParsedReceipt (+ suggestions) for a review
+ * screen to show. Wire the "confirm" action on that review screen to Ivy
+ * Wallet's existing AddEditTransaction ViewModel/use case, pre-filled
  * with these values. Never auto-save straight from OCR output.
  */
 @HiltViewModel
 class ReceiptScannerViewModel @Inject constructor(
     private val ocrProcessor: ReceiptOcrProcessor,
     private val parser: ReceiptParser,
+    private val typeClassifier: TransactionTypeClassifier,
     private val categoryMatcher: MerchantCategoryMatcher,
     private val categoryRepository: CategoryRepository
 ) : ViewModel() {
@@ -69,6 +75,7 @@ class ReceiptScannerViewModel @Inject constructor(
             }
 
             val parsed = parser.parse(text)
+            val suggestedType = typeClassifier.classify(text)
 
             // Match on the merchant guess first; fall back to the raw OCR
             // text (e.g. dictionary keywords may appear elsewhere on the
@@ -80,7 +87,8 @@ class ReceiptScannerViewModel @Inject constructor(
             _state.value = ReceiptScanState.ReviewNeeded(
                 receipt = parsed,
                 suggestedCategoryId = categoryId,
-                suggestedCategoryName = categoryName
+                suggestedCategoryName = categoryName,
+                suggestedType = suggestedType
             )
         }
     }
