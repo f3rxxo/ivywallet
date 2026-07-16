@@ -49,6 +49,11 @@ data object NotificationListenerSettingsScreen : Screen {
         get() = false
 }
 
+data object CardAccountMappingScreen : Screen {
+    override val isLegacy: Boolean
+        get() = false
+}
+
 data class TransactionsScreen(
     val accountId: UUID? = null,
     val categoryId: UUID? = null,

@@ -15,6 +15,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ivy.base.model.TransactionType
+import com.ivy.data.model.Account
+import com.ivy.data.model.AccountId
 import com.ivy.data.model.CategoryId
 import com.ivy.receiptscanner.domain.ParsedReceipt
 import com.ivy.receiptscanner.ocr.ReceiptImageCapture
@@ -35,10 +37,12 @@ fun ReceiptScannerScreen(
         amount: BigDecimal?,
         dateIso: String?,
         categoryId: CategoryId?,
-        type: TransactionType
+        type: TransactionType,
+        accountId: AccountId?
     ) -> Unit,
     onCancel: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
+    onOpenCardMappingSettings: () -> Unit,
     viewModel: ReceiptScannerViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -124,11 +128,13 @@ fun ReceiptScannerScreen(
                     suggestedCategoryId = s.suggestedCategoryId,
                     suggestedCategoryName = s.suggestedCategoryName,
                     suggestedType = s.suggestedType,
-                    onConfirm = { merchant, amount, dateIso, categoryId, acceptedSuggestion, type ->
+                    suggestedAccountId = s.suggestedAccountId,
+                    accounts = s.accounts,
+                    onConfirm = { merchant, amount, dateIso, categoryId, acceptedSuggestion, type, accountId ->
                         if (acceptedSuggestion && categoryId != null && merchant.isNotBlank()) {
                             viewModel.learnCategory(merchant, categoryId)
                         }
-                        onConfirm(merchant, amount, dateIso, categoryId, type)
+                        onConfirm(merchant, amount, dateIso, categoryId, type, accountId)
                     },
                     onRetry = { viewModel.reset() }
                 )
@@ -140,6 +146,10 @@ fun ReceiptScannerScreen(
                     Text("Try again")
                 }
             }
+        }
+
+        TextButton(onClick = onOpenCardMappingSettings) {
+            Text("Manage card/account matching")
         }
 
         TextButton(onClick = onOpenNotificationSettings) {
@@ -157,19 +167,23 @@ fun ReceiptScannerScreen(
  * OCR/parsing is a best guess, not ground truth. Same goes for the
  * auto-matched category: it's a checkable suggestion, not an auto-apply.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReceiptReviewForm(
     receipt: ParsedReceipt,
     suggestedCategoryId: CategoryId?,
     suggestedCategoryName: String?,
     suggestedType: TransactionType,
+    suggestedAccountId: AccountId?,
+    accounts: List<Account>,
     onConfirm: (
         merchant: String,
         amount: BigDecimal?,
         dateIso: String?,
         categoryId: CategoryId?,
         acceptedSuggestion: Boolean,
-        type: TransactionType
+        type: TransactionType,
+        accountId: AccountId?
     ) -> Unit,
     onRetry: () -> Unit
 ) {
@@ -181,6 +195,8 @@ private fun ReceiptReviewForm(
         mutableStateOf(suggestedCategoryId != null)
     }
     var selectedType by remember(suggestedType) { mutableStateOf(suggestedType) }
+    var selectedAccountId by remember(suggestedAccountId) { mutableStateOf(suggestedAccountId) }
+    var accountDropdownExpanded by remember { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
@@ -205,6 +221,47 @@ private fun ReceiptReviewForm(
             if (selectedType == TransactionType.TRANSFER) {
                 Text(
                     "You'll be asked to pick the destination account on the next screen.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
+        // Account picker — auto-selected if a card/account mapping matched,
+        // but always changeable, and always available even with no match
+        // so there's nothing left to configure on the next screen.
+        if (accounts.isNotEmpty()) {
+            ExposedDropdownMenuBox(
+                expanded = accountDropdownExpanded,
+                onExpandedChange = { accountDropdownExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = accounts.firstOrNull { it.id == selectedAccountId }?.name?.value
+                        ?: "Select account",
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Account") },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = accountDropdownExpanded,
+                    onDismissRequest = { accountDropdownExpanded = false }
+                ) {
+                    accounts.forEach { account ->
+                        DropdownMenuItem(
+                            text = { Text(account.name.value) },
+                            onClick = {
+                                selectedAccountId = account.id
+                                accountDropdownExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+            if (suggestedAccountId != null) {
+                Text(
+                    "Auto-matched from a saved card mapping.",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -256,7 +313,8 @@ private fun ReceiptReviewForm(
                     receipt.dateGuess?.toString(),
                     categoryId,
                     useSuggestedCategory,
-                    selectedType
+                    selectedType,
+                    selectedAccountId
                 )
             }) {
                 Text("Add transaction")

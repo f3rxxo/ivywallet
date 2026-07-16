@@ -5,8 +5,12 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ivy.base.model.TransactionType
+import com.ivy.data.model.Account
+import com.ivy.data.model.AccountId
 import com.ivy.data.model.CategoryId
+import com.ivy.data.repository.AccountRepository
 import com.ivy.data.repository.CategoryRepository
+import com.ivy.receiptscanner.category.CardAccountMatcher
 import com.ivy.receiptscanner.category.MerchantCategoryMatcher
 import com.ivy.receiptscanner.domain.ParsedReceipt
 import com.ivy.receiptscanner.ocr.ReceiptOcrProcessor
@@ -31,13 +35,19 @@ sealed interface ReceiptScanState {
         val suggestedCategoryName: String?,
         // Guessed from keywords in the text (works for receipts AND
         // bank/payment app notification screenshots). Always editable.
-        val suggestedType: TransactionType
+        val suggestedType: TransactionType,
+        // Auto-matched from a masked card number / nickname found in the
+        // text, resolved against your saved card->account mappings.
+        val suggestedAccountId: AccountId?,
+        // Full account list so the review screen can offer a manual
+        // picker too (e.g. when nothing auto-matched).
+        val accounts: List<Account>
     ) : ReceiptScanState
     data class Failed(val reason: String) : ReceiptScanState
 }
 
 /**
- * Drives the "scan receipt -> OCR -> parse -> classify -> match category -> review" flow.
+ * Drives the "scan receipt -> OCR -> parse -> classify -> match category & account -> review" flow.
  *
  * IMPORTANT: this ViewModel intentionally does NOT save a transaction
  * itself. It only produces a ParsedReceipt (+ suggestions) for a review
@@ -51,7 +61,9 @@ class ReceiptScannerViewModel @Inject constructor(
     private val parser: ReceiptParser,
     private val typeClassifier: TransactionTypeClassifier,
     private val categoryMatcher: MerchantCategoryMatcher,
-    private val categoryRepository: CategoryRepository
+    private val categoryRepository: CategoryRepository,
+    private val accountMatcher: CardAccountMatcher,
+    private val accountRepository: AccountRepository
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<ReceiptScanState>(ReceiptScanState.Idle)
@@ -84,11 +96,18 @@ class ReceiptScannerViewModel @Inject constructor(
             val categoryId = categoryMatcher.matchCategory(matchInput)
             val categoryName = categoryId?.let { categoryRepository.findById(it)?.name?.value }
 
+            // Card/account matching looks at the FULL raw text (masked card
+            // numbers and bank names usually aren't part of the merchant line).
+            val accountId = accountMatcher.matchAccount(text)
+            val accounts = accountRepository.findAll()
+
             _state.value = ReceiptScanState.ReviewNeeded(
                 receipt = parsed,
                 suggestedCategoryId = categoryId,
                 suggestedCategoryName = categoryName,
-                suggestedType = suggestedType
+                suggestedType = suggestedType,
+                suggestedAccountId = accountId,
+                accounts = accounts
             )
         }
     }

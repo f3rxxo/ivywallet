@@ -129,7 +129,56 @@ class ReceiptParser @Inject constructor() {
 
     // ---- Merchant name ----------------------------------------------------
 
+    // Common non-merchant domains that show up on receipts/notifications
+    // (payment networks, processors) — never treat these as the merchant.
+    private val domainExclusions = setOf(
+        "visa", "mastercard", "amex", "americanexpress", "discover",
+        "paypal", "venmo", "applepay", "googlepay", "chase", "capitalone",
+        "bankofamerica", "wellsfargo", "citi", "usbank"
+    )
+
+    // Matches "www.aldi.us", "marianos.com", "target.com/feedback" etc.
+    // Deliberately plain-font text on receipts (URLs, feedback prompts),
+    // which OCR reads far more reliably than a stylized store-name logo.
+    private val domainRegex = Regex(
+        """\b(?:www\.)?([a-zA-Z0-9-]{2,})\.(com|us|net|org|co)\b""",
+        RegexOption.IGNORE_CASE
+    )
+
+    // Matches bank/card notification phrasing like "at MARIANOS #543 was
+    // approved" or "purchase at TARGET.COM was declined".
+    private val atMerchantRegex = Regex(
+        """\bat\s+([A-Z0-9][A-Z0-9 &.'#-]{1,40}?)\s+(?:was|is)\b""",
+        RegexOption.IGNORE_CASE
+    )
+
     private fun extractMerchant(lines: List<String>): String? {
+        extractMerchantFromDomain(lines)?.let { return it }
+        extractMerchantFromNotificationPhrasing(lines)?.let { return it }
+        return extractMerchantFromFirstLines(lines)
+    }
+
+    private fun extractMerchantFromNotificationPhrasing(lines: List<String>): String? {
+        for (line in lines) {
+            val match = atMerchantRegex.find(line) ?: continue
+            val name = match.groupValues[1].trim().replace(Regex("""\s*#\d+$"""), "")
+            if (name.isNotBlank()) return name
+        }
+        return null
+    }
+
+    private fun extractMerchantFromDomain(lines: List<String>): String? {
+        for (line in lines) {
+            val match = domainRegex.find(line) ?: continue
+            val name = match.groupValues[1]
+            if (name.lowercase(Locale.getDefault()) in domainExclusions) continue
+            if (name.length < 2) continue
+            return name.replaceFirstChar { it.uppercase() }
+        }
+        return null
+    }
+
+    private fun extractMerchantFromFirstLines(lines: List<String>): String? {
         // Heuristic: the merchant name is almost always one of the first
         // few lines, and it's rarely purely numeric or a known boilerplate
         // word like "receipt" / "invoice" / an address fragment.

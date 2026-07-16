@@ -3,6 +3,7 @@ package com.ivy.receiptscanner.ui
 import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.runtime.Composable
 import com.ivy.base.model.TransactionType
+import com.ivy.navigation.CardAccountMappingScreen
 import com.ivy.navigation.EditTransactionScreen
 import com.ivy.navigation.NotificationListenerSettingsScreen
 import com.ivy.navigation.navigation
@@ -21,11 +22,18 @@ fun BoxWithConstraintsScope.ReceiptScannerScreenRoute() {
     val nav = navigation()
 
     ReceiptScannerScreen(
-        onConfirm = { merchant, amount, dateIso, categoryId, type ->
+        onConfirm = { merchant, amount, dateIso, categoryId, type, accountId ->
+            // Pop this scanner screen off the back stack BEFORE pushing the
+            // Edit Transaction screen, so that when the user taps Save
+            // there, it returns to Home instead of back to this scan
+            // screen. (EditTransactionViewModel's save() just calls
+            // nav.back() — whatever is directly under it on the stack.)
+            nav.back()
             nav.navigateTo(
                 EditTransactionScreen(
                     initialTransactionId = null,
                     type = type,
+                    accountId = accountId?.value,
                     // Category only makes sense for expense/income, not transfers.
                     categoryId = if (type == TransactionType.TRANSFER) null else categoryId?.value,
                     initialAmount = amount?.toDouble(),
@@ -35,7 +43,8 @@ fun BoxWithConstraintsScope.ReceiptScannerScreenRoute() {
             )
         },
         onCancel = { nav.back() },
-        onOpenNotificationSettings = { nav.navigateTo(NotificationListenerSettingsScreen) }
+        onOpenNotificationSettings = { nav.navigateTo(NotificationListenerSettingsScreen) },
+        onOpenCardMappingSettings = { nav.navigateTo(CardAccountMappingScreen) }
     )
 }
 

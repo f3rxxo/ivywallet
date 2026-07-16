@@ -37,6 +37,7 @@ import com.ivy.navigation.PieChartStatisticScreen
 import com.ivy.navigation.PlannedPaymentsScreen
 import com.ivy.navigation.PollScreen
 import com.ivy.navigation.NotificationListenerSettingsScreen
+import com.ivy.navigation.CardAccountMappingScreen
 import com.ivy.navigation.ReceiptScannerScreen
 import com.ivy.navigation.ReleasesScreen
 import com.ivy.navigation.ReportScreen
@@ -50,6 +51,7 @@ import com.ivy.piechart.PieChartStatisticScreen
 import com.ivy.planned.edit.EditPlannedScreen
 import com.ivy.planned.list.PlannedPaymentsScreen
 import com.ivy.poll.impl.ui.PollScreen
+import com.ivy.receiptscanner.category.CardAccountMappingScreen
 import com.ivy.receiptscanner.notification.NotificationListenerSettingsScreen
 import com.ivy.receiptscanner.ui.ReceiptScannerScreenRoute
 import com.ivy.releases.ReleasesScreenImpl
@@ -77,6 +79,9 @@ fun BoxWithConstraintsScope.IvyNavGraph(screen: Screen?) {
         is EditTransactionScreen -> EditTransactionScreen(screen = screen)
         ReceiptScannerScreen -> ReceiptScannerScreenRoute()
         NotificationListenerSettingsScreen -> NotificationListenerSettingsScreen(
+            onBack = { nav.back() }
+        )
+        CardAccountMappingScreen -> CardAccountMappingScreen(
             onBack = { nav.back() }
         )
         is TransactionsScreen -> TransactionsScreen(screen = screen)
