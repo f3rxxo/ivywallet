@@ -262,7 +262,7 @@ private fun LazyListScope.historySection(
                 is Transaction -> {
                     val nav = navigation()
 
-                    TransactionCard(
+                    CompactTransactionCard(
                         baseData = baseData,
 
                         transaction = it,
