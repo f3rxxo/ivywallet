@@ -248,6 +248,30 @@ private fun LazyListScope.historySection(
     onPayOrGet: (Transaction) -> Unit
 ) {
     if (history.isNotEmpty()) {
+        // Relative running balance, computed only from the transactions
+        // currently loaded in `history` — NOT anchored to the real account
+        // balance. `history` is newest-first (matches the date dividers
+        // above), so we walk it oldest-to-newest accumulating a signed
+        // total; the newest (top) transaction ends up showing the sum of
+        // everything visible, which reads naturally top-to-bottom.
+        // Convention matches the amount sign shown on each row: income and
+        // transfer count as +, expense as -.
+        val runningBalanceByTransactionId: Map<java.util.UUID, Double> = run {
+            val balances = mutableMapOf<java.util.UUID, Double>()
+            var cumulative = 0.0
+            history.asReversed().forEach { item ->
+                if (item is Transaction) {
+                    val signedAmount = when (item.type) {
+                        com.ivy.base.model.TransactionType.EXPENSE -> -item.amount.toDouble()
+                        else -> item.amount.toDouble()
+                    }
+                    cumulative += signedAmount
+                    balances[item.id] = cumulative
+                }
+            }
+            balances
+        }
+
         items(
             items = history,
             key = {
@@ -267,7 +291,8 @@ private fun LazyListScope.historySection(
 
                         transaction = it,
                         shouldShowAccountSpecificColorInTransactions = shouldShowAccountSpecificColorInTransactions,
-                        onPayOrGet = onPayOrGet
+                        onPayOrGet = onPayOrGet,
+                        runningBalance = runningBalanceByTransactionId[it.id]
                     ) { trn ->
                         onTransactionClick(
                             nav = nav,
