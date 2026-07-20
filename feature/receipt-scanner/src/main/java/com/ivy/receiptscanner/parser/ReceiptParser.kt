@@ -44,6 +44,58 @@ class ReceiptParser @Inject constructor() {
         )
     }
 
+    /**
+     * Like [parse], but detects and returns MULTIPLE transactions when the
+     * scanned text contains several distinct bank/card notification alerts
+     * grouped in one screenshot (e.g. a notification shade with 2+ stacked
+     * "Citi Alert: Transaction Exceeds" cards).
+     *
+     * Deliberately conservative about what counts as a "separate
+     * transaction": a line only splits off as its own transaction if it
+     * matches notification phrasing specifically (an "at MERCHANT ..."
+     * pattern alongside a money value on the SAME line). A normal itemized
+     * receipt's line items ("Milk 3.49", "Bread 2.99") never match that
+     * shape, so ordinary single-total receipts are completely unaffected
+     * and still return a single-element list via [parse].
+     */
+    fun parseAll(rawText: String): List<ParsedReceipt> {
+        val lines = rawText.lines().map { it.trim() }.filter { it.isNotEmpty() }
+
+        val transactionLines = lines.filter { line ->
+            moneyRegex.containsMatchIn(line) && atMerchantRegex.containsMatchIn(line)
+        }
+
+        // Fewer than 2 distinct notification-style lines: treat as a
+        // normal single-transaction scan (a receipt, or one lone alert).
+        if (transactionLines.size < 2) {
+            return listOf(parse(rawText))
+        }
+
+        val sharedDate = extractDate(lines) // dates are often only on the header/timestamp line
+        val sharedCurrency = extractCurrencySymbol(rawText)
+
+        return transactionLines.map { line ->
+            val lineAsList = listOf(line)
+            val amount = extractTotalAmount(lineAsList)
+            val merchant = extractMerchant(lineAsList)
+
+            val confidence = when {
+                amount != null && sharedDate != null && merchant != null -> ParseConfidence.HIGH
+                amount != null -> ParseConfidence.MEDIUM
+                else -> ParseConfidence.LOW
+            }
+
+            ParsedReceipt(
+                rawText = line,
+                merchantGuess = merchant,
+                totalAmountGuess = amount,
+                dateGuess = sharedDate,
+                currencyGuess = sharedCurrency,
+                confidence = confidence
+            )
+        }
+    }
+
     // ---- Total amount -------------------------------------------------
 
     private val totalKeywords = listOf(
@@ -145,23 +197,47 @@ class ReceiptParser @Inject constructor() {
         RegexOption.IGNORE_CASE
     )
 
-    // Matches bank/card notification phrasing like "at MARIANOS #543 was
-    // approved" or "purchase at TARGET.COM was declined".
+    // Matches bank/card notification phrasing. Broadened beyond "was
+    // approved" / "is declined" to also cover "...on card ending in 2033",
+    // "...in card 0502", or a trailing 4-digit reference — different banks
+    // (Citi, Capital One, etc.) all phrase this differently.
     private val atMerchantRegex = Regex(
-        """\bat\s+([A-Z0-9][A-Z0-9 &.'#-]{1,40}?)\s+(?:was|is)\b""",
+        """\bat\s+([A-Z0-9][A-Z0-9 &.'#-]{1,50}?)(?=\s+(?:was|is|on card|in card|at\b|view\b|\d{4}\b))""",
         RegexOption.IGNORE_CASE
     )
 
+    // Cleans up raw OCR variants, store-number suffixes, and corporate
+    // tags into a consistent display name. Extend this as you run into
+    // more banks/merchants with inconsistent notification phrasing.
+    private val fuzzyMerchantMap = mapOf(
+        "marianos" to "Mariano's",
+        "mariano" to "Mariano's",
+        "aldi inc" to "Aldi",
+        "aldi" to "Aldi",
+        "target com" to "Target",
+        "target" to "Target",
+        "walmart" to "Walmart",
+        "wm supercenter" to "Walmart"
+    )
+
     private fun extractMerchant(lines: List<String>): String? {
-        extractMerchantFromDomain(lines)?.let { return it }
-        extractMerchantFromNotificationPhrasing(lines)?.let { return it }
-        return extractMerchantFromFirstLines(lines)
+        extractMerchantFromDomain(lines)?.let { return applyFuzzyLookup(it) }
+        extractMerchantFromNotificationPhrasing(lines)?.let { return applyFuzzyLookup(it) }
+        return extractMerchantFromFirstLines(lines)?.let { applyFuzzyLookup(it) }
     }
 
     private fun extractMerchantFromNotificationPhrasing(lines: List<String>): String? {
         for (line in lines) {
             val match = atMerchantRegex.find(line) ?: continue
-            val name = match.groupValues[1].trim().replace(Regex("""\s*#\d+$"""), "")
+            var name = match.groupValues[1].trim()
+
+            // Strip trailing "<City> USA" / "<City>, USA" style location
+            // suffixes BEFORE stripping a trailing store number — otherwise
+            // "MARIANOS #543 LOMBARD USA" never gets its "#543" removed,
+            // since at that point the string doesn't yet END in the number.
+            name = name.replace(Regex("""[,]?\s+[A-Z]{2,}\s+USA$""", RegexOption.IGNORE_CASE), "")
+            name = name.replace(Regex("""\s*#\d+$"""), "")
+
             if (name.isNotBlank()) return name
         }
         return null
@@ -173,9 +249,34 @@ class ReceiptParser @Inject constructor() {
             val name = match.groupValues[1]
             if (name.lowercase(Locale.getDefault()) in domainExclusions) continue
             if (name.length < 2) continue
-            return name.replaceFirstChar { it.uppercase() }
+            return name
         }
         return null
+    }
+
+    /**
+     * Cleans a raw extracted merchant string against the fuzzy dictionary
+     * (handles OCR variants, corporate suffixes like "INC", typos), falling
+     * back to Title Case formatting if no dictionary entry matches.
+     */
+    private fun applyFuzzyLookup(rawName: String): String {
+        val cleanedKey = rawName.trim().lowercase(Locale.getDefault())
+            .replace(Regex("""\s+"""), " ")
+
+        // 1. Exact dictionary match.
+        fuzzyMerchantMap[cleanedKey]?.let { return it }
+
+        // 2. Partial match for corporate tags/extra words, e.g.
+        //    "aldi inc" -> "Aldi" even if something else trails it.
+        for ((key, cleanValue) in fuzzyMerchantMap) {
+            if (cleanedKey.contains(key)) return cleanValue
+        }
+
+        // 3. Fallback: Title Case the raw name as-is.
+        return rawName.trim().split(" ").joinToString(" ") { word ->
+            word.lowercase(Locale.getDefault())
+                .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+        }
     }
 
     private fun extractMerchantFromFirstLines(lines: List<String>): String? {

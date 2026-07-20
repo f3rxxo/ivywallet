@@ -6,6 +6,8 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,28 +20,32 @@ import com.ivy.base.model.TransactionType
 import com.ivy.data.model.Account
 import com.ivy.data.model.AccountId
 import com.ivy.data.model.CategoryId
-import com.ivy.receiptscanner.domain.ParsedReceipt
 import com.ivy.receiptscanner.ocr.ReceiptImageCapture
 import java.math.BigDecimal
 
+/** What the review screen hands back for ONE transaction the user confirmed. */
+data class ConfirmedTransaction(
+    val merchant: String,
+    val amount: BigDecimal?,
+    val dateIso: String?,
+    val categoryId: CategoryId?,
+    val type: TransactionType,
+    val accountId: AccountId?
+)
+
 /**
- * Entry point screen: user picks/takes a photo of a receipt, we OCR + parse it,
- * then hand the pre-filled fields to `onConfirm` so the caller can push them
- * into Ivy Wallet's existing Add/Edit Transaction flow.
+ * Entry point screen: user picks/takes a photo of a receipt (or a bank
+ * notification screenshot — possibly containing SEVERAL grouped alerts),
+ * we OCR + parse it, then hand the pre-filled fields to `onConfirm` so the
+ * caller can push them into Ivy Wallet's existing Add/Edit Transaction
+ * flow, one per confirmed item.
  *
  * Wire this up wherever Ivy Wallet's "Add Transaction" entry point lives
  * (e.g. an extra button/FAB option "Scan receipt").
  */
 @Composable
 fun ReceiptScannerScreen(
-    onConfirm: (
-        merchant: String,
-        amount: BigDecimal?,
-        dateIso: String?,
-        categoryId: CategoryId?,
-        type: TransactionType,
-        accountId: AccountId?
-    ) -> Unit,
+    onConfirm: (transactions: List<ConfirmedTransaction>) -> Unit,
     onCancel: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
     onOpenCardMappingSettings: () -> Unit,
@@ -123,18 +129,13 @@ fun ReceiptScannerScreen(
             }
 
             is ReceiptScanState.ReviewNeeded -> {
-                ReceiptReviewForm(
-                    receipt = s.receipt,
-                    suggestedCategoryId = s.suggestedCategoryId,
-                    suggestedCategoryName = s.suggestedCategoryName,
-                    suggestedType = s.suggestedType,
-                    suggestedAccountId = s.suggestedAccountId,
-                    accounts = s.accounts,
-                    onConfirm = { merchant, amount, dateIso, categoryId, acceptedSuggestion, type, accountId ->
-                        if (acceptedSuggestion && categoryId != null && merchant.isNotBlank()) {
+                ReceiptReviewList(
+                    reviewState = s,
+                    onConfirm = { confirmedList, learnedCategories ->
+                        learnedCategories.forEach { (merchant, categoryId) ->
                             viewModel.learnCategory(merchant, categoryId)
                         }
-                        onConfirm(merchant, amount, dateIso, categoryId, type, accountId)
+                        onConfirm(confirmedList)
                     },
                     onRetry = { viewModel.reset() }
                 )
@@ -163,46 +164,151 @@ fun ReceiptScannerScreen(
 }
 
 /**
- * Review/edit form shown after OCR + parsing. ALWAYS shown before saving —
- * OCR/parsing is a best guess, not ground truth. Same goes for the
- * auto-matched category: it's a checkable suggestion, not an auto-apply.
+ * Per-item mutable form state. A plain class (not a data class) holding
+ * Compose state objects, created once per scan via `remember(items)` so
+ * edits persist across recomposition but reset on a new scan.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+private class ReceiptItemUiState(item: ReceiptReviewItem) {
+    val item = item
+    var included by mutableStateOf(true)
+    var merchant by mutableStateOf(item.receipt.merchantGuess.orEmpty())
+    var amountText by mutableStateOf(item.receipt.totalAmountGuess?.toPlainString().orEmpty())
+    var useSuggestedCategory by mutableStateOf(item.suggestedCategoryId != null)
+    var selectedType by mutableStateOf(item.suggestedType)
+    var selectedAccountId by mutableStateOf(item.suggestedAccountId)
+}
+
+/**
+ * Review/edit list shown after OCR + parsing. ALWAYS shown before saving —
+ * OCR/parsing is a best guess, not ground truth. Same goes for the
+ * auto-matched category/account: they're checkable suggestions, never
+ * auto-applied. Usually a single item (a normal receipt); shows several
+ * when the screenshot had multiple grouped bank/card alerts.
+ */
 @Composable
-private fun ReceiptReviewForm(
-    receipt: ParsedReceipt,
-    suggestedCategoryId: CategoryId?,
-    suggestedCategoryName: String?,
-    suggestedType: TransactionType,
-    suggestedAccountId: AccountId?,
-    accounts: List<Account>,
+private fun ReceiptReviewList(
+    reviewState: ReceiptScanState.ReviewNeeded,
     onConfirm: (
-        merchant: String,
-        amount: BigDecimal?,
-        dateIso: String?,
-        categoryId: CategoryId?,
-        acceptedSuggestion: Boolean,
-        type: TransactionType,
-        accountId: AccountId?
+        confirmed: List<ConfirmedTransaction>,
+        learnedCategories: List<Pair<String, CategoryId>>
     ) -> Unit,
     onRetry: () -> Unit
 ) {
-    var merchant by remember { mutableStateOf(receipt.merchantGuess.orEmpty()) }
-    var amountText by remember {
-        mutableStateOf(receipt.totalAmountGuess?.toPlainString().orEmpty())
+    val itemStates = remember(reviewState.items) {
+        reviewState.items.map { ReceiptItemUiState(it) }
     }
-    var useSuggestedCategory by remember(suggestedCategoryId) {
-        mutableStateOf(suggestedCategoryId != null)
+    val includedCount = itemStates.count { it.included }
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text(
+            if (itemStates.size > 1) {
+                "Found ${itemStates.size} transactions — confirm each (auto-filled, edit anything that's wrong)"
+            } else {
+                "Confirm details (auto-filled, edit anything that's wrong)"
+            },
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        if (itemStates.size > 1) {
+            LazyColumn(
+                modifier = Modifier.weight(1f, fill = false),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                items(itemStates.size) { index ->
+                    ReceiptItemEditor(
+                        index = index,
+                        total = itemStates.size,
+                        state = itemStates[index],
+                        accounts = reviewState.accounts
+                    )
+                    HorizontalDivider()
+                }
+            }
+        } else {
+            itemStates.firstOrNull()?.let { itemState ->
+                ReceiptItemEditor(
+                    index = 0,
+                    total = 1,
+                    state = itemState,
+                    accounts = reviewState.accounts
+                )
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(
+                enabled = includedCount > 0,
+                onClick = {
+                    val confirmed = mutableListOf<ConfirmedTransaction>()
+                    val learned = mutableListOf<Pair<String, CategoryId>>()
+
+                    itemStates.filter { it.included }.forEach { s ->
+                        val amount = s.amountText.toBigDecimalOrNull()
+                        val categoryId = if (s.useSuggestedCategory) s.item.suggestedCategoryId else null
+
+                        confirmed.add(
+                            ConfirmedTransaction(
+                                merchant = s.merchant,
+                                amount = amount,
+                                dateIso = s.item.receipt.dateGuess?.toString(),
+                                categoryId = categoryId,
+                                type = s.selectedType,
+                                accountId = s.selectedAccountId
+                            )
+                        )
+
+                        if (s.useSuggestedCategory && categoryId != null && s.merchant.isNotBlank()) {
+                            learned.add(s.merchant to categoryId)
+                        }
+                    }
+
+                    onConfirm(confirmed, learned)
+                }
+            ) {
+                Text(
+                    if (itemStates.size > 1) {
+                        "Add $includedCount transaction${if (includedCount == 1) "" else "s"}"
+                    } else {
+                        "Add transaction"
+                    }
+                )
+            }
+            OutlinedButton(onClick = onRetry) {
+                Text("Retake photo")
+            }
+        }
     }
-    var selectedType by remember(suggestedType) { mutableStateOf(suggestedType) }
-    var selectedAccountId by remember(suggestedAccountId) { mutableStateOf(suggestedAccountId) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReceiptItemEditor(
+    index: Int,
+    total: Int,
+    state: ReceiptItemUiState,
+    accounts: List<Account>
+) {
     var accountDropdownExpanded by remember { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            "Confirm details (auto-filled, edit anything that's wrong)",
-            style = MaterialTheme.typography.bodyMedium
-        )
+        if (total > 1) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = state.included,
+                    onCheckedChange = { state.included = it }
+                )
+                Text(
+                    "Transaction ${index + 1} of $total",
+                    style = MaterialTheme.typography.titleSmall
+                )
+            }
+        }
+
+        if (total > 1 && !state.included) {
+            // Collapsed/disabled look when excluded from a multi-item batch —
+            // still shows nothing further so the list stays scannable.
+            return
+        }
 
         // Type selector — always shown and editable. Bank notification
         // wording ("transfer", "payment", "deposit") is a hint, not ground
@@ -212,13 +318,13 @@ private fun ReceiptReviewForm(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TransactionType.entries.forEach { type ->
                     FilterChip(
-                        selected = selectedType == type,
-                        onClick = { selectedType = type },
+                        selected = state.selectedType == type,
+                        onClick = { state.selectedType = type },
                         label = { Text(type.name.lowercase().replaceFirstChar { it.uppercase() }) }
                     )
                 }
             }
-            if (selectedType == TransactionType.TRANSFER) {
+            if (state.selectedType == TransactionType.TRANSFER) {
                 Text(
                     "You'll be asked to pick the destination account on the next screen.",
                     style = MaterialTheme.typography.bodySmall
@@ -235,7 +341,7 @@ private fun ReceiptReviewForm(
                 onExpandedChange = { accountDropdownExpanded = it }
             ) {
                 OutlinedTextField(
-                    value = accounts.firstOrNull { it.id == selectedAccountId }?.name?.value
+                    value = accounts.firstOrNull { it.id == state.selectedAccountId }?.name?.value
                         ?: "Select account",
                     onValueChange = {},
                     readOnly = true,
@@ -252,14 +358,14 @@ private fun ReceiptReviewForm(
                         DropdownMenuItem(
                             text = { Text(account.name.value) },
                             onClick = {
-                                selectedAccountId = account.id
+                                state.selectedAccountId = account.id
                                 accountDropdownExpanded = false
                             }
                         )
                     }
                 }
             }
-            if (suggestedAccountId != null) {
+            if (state.item.suggestedAccountId != null) {
                 Text(
                     "Auto-matched from a saved card mapping.",
                     style = MaterialTheme.typography.bodySmall
@@ -268,30 +374,31 @@ private fun ReceiptReviewForm(
         }
 
         OutlinedTextField(
-            value = merchant,
-            onValueChange = { merchant = it },
+            value = state.merchant,
+            onValueChange = { state.merchant = it },
             label = { Text("Merchant") },
             modifier = Modifier.fillMaxWidth()
         )
 
         OutlinedTextField(
-            value = amountText,
-            onValueChange = { amountText = it },
+            value = state.amountText,
+            onValueChange = { state.amountText = it },
             label = { Text("Amount") },
             modifier = Modifier.fillMaxWidth()
         )
 
         Text(
-            "Date detected: ${receipt.dateGuess ?: "not found — please set manually"}",
+            "Date detected: ${state.item.receipt.dateGuess ?: "not found — please set manually"}",
             style = MaterialTheme.typography.bodySmall
         )
 
-        if (selectedType == TransactionType.EXPENSE) {
-            if (suggestedCategoryId != null && suggestedCategoryName != null) {
+        if (state.selectedType == TransactionType.EXPENSE) {
+            val suggestedCategoryName = state.item.suggestedCategoryName
+            if (state.item.suggestedCategoryId != null && suggestedCategoryName != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(
-                        checked = useSuggestedCategory,
-                        onCheckedChange = { useSuggestedCategory = it }
+                        checked = state.useSuggestedCategory,
+                        onCheckedChange = { state.useSuggestedCategory = it }
                     )
                     Text("Use category: $suggestedCategoryName")
                 }
@@ -300,27 +407,6 @@ private fun ReceiptReviewForm(
                     "No matching category found — you'll be able to pick one on the next screen.",
                     style = MaterialTheme.typography.bodySmall
                 )
-            }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = {
-                val amount = amountText.toBigDecimalOrNull()
-                val categoryId = if (useSuggestedCategory) suggestedCategoryId else null
-                onConfirm(
-                    merchant,
-                    amount,
-                    receipt.dateGuess?.toString(),
-                    categoryId,
-                    useSuggestedCategory,
-                    selectedType,
-                    selectedAccountId
-                )
-            }) {
-                Text("Add transaction")
-            }
-            OutlinedButton(onClick = onRetry) {
-                Text("Retake photo")
             }
         }
     }

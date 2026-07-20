@@ -23,22 +23,23 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/** One transaction's worth of parsed data + auto-matched suggestions. */
+data class ReceiptReviewItem(
+    val receipt: ParsedReceipt,
+    val suggestedCategoryId: CategoryId?,
+    val suggestedCategoryName: String?,
+    val suggestedType: TransactionType,
+    val suggestedAccountId: AccountId?
+)
+
 sealed interface ReceiptScanState {
     data object Idle : ReceiptScanState
     data object Processing : ReceiptScanState
     data class ReviewNeeded(
-        val receipt: ParsedReceipt,
-        // Auto-matched from the merchant name; null if nothing matched.
-        // Shown as a suggestion on the review screen — never silently
-        // applied without the user seeing it first.
-        val suggestedCategoryId: CategoryId?,
-        val suggestedCategoryName: String?,
-        // Guessed from keywords in the text (works for receipts AND
-        // bank/payment app notification screenshots). Always editable.
-        val suggestedType: TransactionType,
-        // Auto-matched from a masked card number / nickname found in the
-        // text, resolved against your saved card->account mappings.
-        val suggestedAccountId: AccountId?,
+        // Usually a single item (a normal receipt scan). More than one
+        // when the screenshot contained several grouped bank/card alerts
+        // (see ReceiptParser.parseAll).
+        val items: List<ReceiptReviewItem>,
         // Full account list so the review screen can offer a manual
         // picker too (e.g. when nothing auto-matched).
         val accounts: List<Account>
@@ -50,7 +51,7 @@ sealed interface ReceiptScanState {
  * Drives the "scan receipt -> OCR -> parse -> classify -> match category & account -> review" flow.
  *
  * IMPORTANT: this ViewModel intentionally does NOT save a transaction
- * itself. It only produces a ParsedReceipt (+ suggestions) for a review
+ * itself. It only produces parsed data (+ suggestions) for a review
  * screen to show. Wire the "confirm" action on that review screen to Ivy
  * Wallet's existing AddEditTransaction ViewModel/use case, pre-filled
  * with these values. Never auto-save straight from OCR output.
@@ -86,30 +87,46 @@ class ReceiptScannerViewModel @Inject constructor(
                 return@launch
             }
 
-            val parsed = parser.parse(text)
-            val suggestedType = typeClassifier.classify(text)
+            val parsedList = parser.parseAll(text)
+            if (parsedList.all { it.totalAmountGuess == null }) {
+                _state.value = ReceiptScanState.Failed(
+                    "Couldn't find an amount. Try a clearer, well-lit photo."
+                )
+                return@launch
+            }
 
-            // Match on the merchant guess first; fall back to the raw OCR
-            // text (e.g. dictionary keywords may appear elsewhere on the
-            // receipt even if merchant-line detection missed).
-            val matchInput = parsed.merchantGuess ?: parsed.rawText
-            val categoryId = categoryMatcher.matchCategory(matchInput)
-            val categoryName = categoryId?.let { categoryRepository.findById(it)?.name?.value }
-
-            // Card/account matching looks at the FULL raw text (masked card
-            // numbers and bank names usually aren't part of the merchant line).
-            val accountId = accountMatcher.matchAccount(text)
             val accounts = accountRepository.findAll()
+            val items = parsedList.map { parsed -> buildReviewItem(parsed, accounts) }
 
-            _state.value = ReceiptScanState.ReviewNeeded(
-                receipt = parsed,
-                suggestedCategoryId = categoryId,
-                suggestedCategoryName = categoryName,
-                suggestedType = suggestedType,
-                suggestedAccountId = accountId,
-                accounts = accounts
-            )
+            _state.value = ReceiptScanState.ReviewNeeded(items = items, accounts = accounts)
         }
+    }
+
+    private suspend fun buildReviewItem(
+        parsed: ParsedReceipt,
+        accounts: List<Account>
+    ): ReceiptReviewItem {
+        val suggestedType = typeClassifier.classify(parsed.rawText)
+
+        // Match on the merchant guess first; fall back to the raw OCR
+        // text (e.g. dictionary keywords may appear elsewhere on the
+        // receipt even if merchant-line detection missed).
+        val matchInput = parsed.merchantGuess ?: parsed.rawText
+        val categoryId = categoryMatcher.matchCategory(matchInput)
+        val categoryName = categoryId?.let { categoryRepository.findById(it)?.name?.value }
+
+        // Card/account matching looks at this item's own text (masked card
+        // numbers and bank names are usually right there in the same
+        // notification line/block this item was split from).
+        val accountId = accountMatcher.matchAccount(parsed.rawText)
+
+        return ReceiptReviewItem(
+            receipt = parsed,
+            suggestedCategoryId = categoryId,
+            suggestedCategoryName = categoryName,
+            suggestedType = suggestedType,
+            suggestedAccountId = accountId
+        )
     }
 
     /** Teach the matcher from what the user actually confirmed. */

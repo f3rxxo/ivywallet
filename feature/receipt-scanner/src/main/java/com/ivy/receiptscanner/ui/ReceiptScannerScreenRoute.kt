@@ -22,25 +22,47 @@ fun BoxWithConstraintsScope.ReceiptScannerScreenRoute() {
     val nav = navigation()
 
     ReceiptScannerScreen(
-        onConfirm = { merchant, amount, dateIso, categoryId, type, accountId ->
-            // Pop this scanner screen off the back stack BEFORE pushing the
-            // Edit Transaction screen, so that when the user taps Save
-            // there, it returns to Home instead of back to this scan
-            // screen. (EditTransactionViewModel's save() just calls
-            // nav.back() — whatever is directly under it on the stack.)
-            nav.back()
-            nav.navigateTo(
-                EditTransactionScreen(
-                    initialTransactionId = null,
-                    type = type,
-                    accountId = accountId?.value,
-                    // Category only makes sense for expense/income, not transfers.
-                    categoryId = if (type == TransactionType.TRANSFER) null else categoryId?.value,
-                    initialAmount = amount?.toDouble(),
-                    initialTitle = merchant.ifBlank { null },
-                    initialDateTime = dateIso?.toInstantOrNull()
-                )
-            )
+        onConfirm = { transactions ->
+            if (transactions.isNotEmpty()) {
+                // Pop this scanner screen off the back stack BEFORE pushing
+                // any Edit Transaction screens, so that after the LAST one
+                // is saved, it returns to Home instead of back to this scan
+                // screen. (EditTransactionViewModel's save() just calls
+                // nav.back() — whatever is directly under it on the stack.)
+                nav.back()
+
+                // Chain multiple transactions (e.g. several grouped bank
+                // alerts in one screenshot) by pre-loading the back stack
+                // in REVERSE order, so the first item ends up as the
+                // visible screen, and each subsequent Save naturally
+                // advances to the next one: pushing [last, ..., second]
+                // onto the stack before finally navigating to [first]
+                // means back() from first pops to second, back() from
+                // second pops to third, etc., with the final back()
+                // landing on whatever was under this scanner screen
+                // originally (Home). This reuses EditTransactionScreen's
+                // own battle-tested save path unmodified for every
+                // transaction — no separate bulk-save logic to get subtly
+                // wrong.
+                transactions.asReversed().forEach { trn ->
+                    nav.navigateTo(
+                        EditTransactionScreen(
+                            initialTransactionId = null,
+                            type = trn.type,
+                            accountId = trn.accountId?.value,
+                            // Category only makes sense for expense/income, not transfers.
+                            categoryId = if (trn.type == TransactionType.TRANSFER) {
+                                null
+                            } else {
+                                trn.categoryId?.value
+                            },
+                            initialAmount = trn.amount?.toDouble(),
+                            initialTitle = trn.merchant.ifBlank { null },
+                            initialDateTime = trn.dateIso?.toInstantOrNull()
+                        )
+                    )
+                }
+            }
         },
         onCancel = { nav.back() },
         onOpenNotificationSettings = { nav.navigateTo(NotificationListenerSettingsScreen) },
