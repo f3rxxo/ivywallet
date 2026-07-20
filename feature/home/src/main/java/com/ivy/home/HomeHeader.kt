@@ -217,6 +217,8 @@ fun CashFlowInfo(
     balance: Double,
     monthlyIncome: Double,
     monthlyExpenses: Double,
+    lastMonthIncome: Double,
+    lastMonthExpenses: Double,
     hideBalance: Boolean,
     hideIncome: Boolean,
     onHiddenIncomeClick: () -> Unit,
@@ -260,6 +262,8 @@ fun CashFlowInfo(
             currency = currency,
             monthlyIncome = monthlyIncome,
             monthlyExpenses = monthlyExpenses,
+            lastMonthIncome = lastMonthIncome,
+            lastMonthExpenses = lastMonthExpenses,
             hideIncome = hideIncome,
             onHiddenIncomeClick = onHiddenIncomeClick
         )
@@ -296,6 +300,8 @@ private fun IncomeExpenses(
     currency: String,
     monthlyIncome: Double,
     monthlyExpenses: Double,
+    lastMonthIncome: Double,
+    lastMonthExpenses: Double,
     hideIncome: Boolean,
     onHiddenIncomeClick: () -> Unit,
 ) {
@@ -315,7 +321,14 @@ private fun IncomeExpenses(
             label = stringResource(R.string.income),
             currency = currency,
             amount = monthlyIncome,
-            testTag = "home_card_income"
+            testTag = "home_card_income",
+            // For income, going UP vs last month is favorable (green);
+            // going down is unfavorable (gray).
+            comparison = monthComparison(
+                current = monthlyIncome,
+                previous = lastMonthIncome,
+                increaseIsFavorable = true
+            )
         ) {
             if (hideIncome) {
                 onHiddenIncomeClick()
@@ -339,6 +352,13 @@ private fun IncomeExpenses(
             currency = currency,
             amount = monthlyExpenses.absoluteValue,
             testTag = "home_card_expense",
+            // For expenses, going DOWN vs last month is favorable (green);
+            // going up is unfavorable (gray).
+            comparison = monthComparison(
+                current = monthlyExpenses.absoluteValue,
+                previous = lastMonthExpenses.absoluteValue,
+                increaseIsFavorable = false
+            )
         ) {
             nav.navigateTo(
                 PieChartStatisticScreen(
@@ -351,6 +371,38 @@ private fun IncomeExpenses(
     }
 }
 
+/**
+ * A "+12% vs last month" style comparison, plus whether that change is
+ * favorable (shown green) or not (shown muted gray) — meaning of
+ * "favorable" flips between income (more = good) and expenses (less = good).
+ * Returns null when there's no previous-month data to compare against
+ * (avoids a misleading "+infinite%").
+ */
+private data class MonthComparison(val text: String, val favorable: Boolean)
+
+private fun monthComparison(
+    current: Double,
+    previous: Double,
+    increaseIsFavorable: Boolean
+): MonthComparison? {
+    if (previous == 0.0) return null // nothing meaningful to compare against
+
+    val percentChange = ((current - previous) / previous) * 100
+    if (percentChange == 0.0) return null
+
+    val rounded = percentChange.absoluteValue.let {
+        if (it < 10) "%.1f".format(it) else it.toInt().toString()
+    }
+    val increased = percentChange > 0
+    val sign = if (increased) "+" else "-"
+    val favorable = if (increaseIsFavorable) increased else !increased
+
+    return MonthComparison(
+        text = "$sign$rounded% vs last month",
+        favorable = favorable
+    )
+}
+
 @Composable
 private fun RowScope.HeaderCard(
     @DrawableRes icon: Int,
@@ -361,6 +413,7 @@ private fun RowScope.HeaderCard(
     currency: String,
     amount: Double,
     testTag: String,
+    comparison: MonthComparison? = null,
     onClick: () -> Unit,
 ) {
     Column(
@@ -419,6 +472,27 @@ private fun RowScope.HeaderCard(
             Spacer(Modifier.width(4.dp))
         }
 
-        Spacer(Modifier.height(20.dp))
+        if (comparison != null) {
+            Spacer(Modifier.height(2.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Spacer(Modifier.width(20.dp))
+
+                Text(
+                    text = comparison.text,
+                    style = UI.typo.nC.style(
+                        color = if (comparison.favorable) Green else Gray,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                )
+
+                Spacer(Modifier.width(4.dp))
+            }
+        }
+
+        Spacer(Modifier.height(if (comparison != null) 12.dp else 20.dp))
     }
 }

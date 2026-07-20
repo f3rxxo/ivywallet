@@ -186,6 +186,7 @@ fun BoxWithConstraintsScope.HomeUi(
             overdue = uiState.overdue,
 
             stats = uiState.stats,
+            lastMonthStats = uiState.lastMonthStats,
             history = uiState.history,
 
             customerJourneyCards = uiState.customerJourneyCards,
@@ -296,6 +297,7 @@ fun HomeLazyColumn(
     overdue: LegacyDueSection,
     balance: BigDecimal,
     stats: IncomeExpensePair,
+    lastMonthStats: IncomeExpensePair,
     history: ImmutableList<TransactionHistoryItem>,
 
     customerJourneyCards: ImmutableList<CustomerJourneyCardModel>,
@@ -348,6 +350,8 @@ fun HomeLazyColumn(
 
                 monthlyIncome = stats.income.toDouble(),
                 monthlyExpenses = stats.expense.toDouble(),
+                lastMonthIncome = lastMonthStats.income.toDouble(),
+                lastMonthExpenses = lastMonthStats.expense.toDouble(),
 
                 onOpenMoreMenu = onOpenMoreMenu,
                 onBalanceClick = onBalanceClick,
@@ -418,6 +422,7 @@ private fun BoxWithConstraintsScope.PreviewHomeTab(isDark: Boolean = false) {
                 customerJourneyCards = persistentListOf(),
                 history = persistentListOf(),
                 stats = IncomeExpensePair.zero(),
+                lastMonthStats = IncomeExpensePair.zero(),
                 upcoming = LegacyDueSection(
                     trns = persistentListOf(),
                     stats = IncomeExpensePair.zero(),

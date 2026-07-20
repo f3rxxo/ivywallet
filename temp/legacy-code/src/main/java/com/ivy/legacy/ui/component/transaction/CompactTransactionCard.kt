@@ -23,7 +23,6 @@ import com.ivy.legacy.utils.format
 import com.ivy.legacy.utils.isNotNullOrBlank
 import com.ivy.navigation.navigation
 import com.ivy.wallet.ui.theme.Red
-import com.ivy.wallet.ui.theme.White
 
 /**
  * A single-row, borderless, compact alternative to [TransactionCard]:
@@ -33,10 +32,9 @@ import com.ivy.wallet.ui.theme.White
  * second line — tap the row to open the full Edit Transaction screen for
  * any of that.
  *
- * NOTE on color: text is hard-coded White per request, which assumes a
- * dark theme/background. If the app is ever used in light theme, white
- * text on a light background will be unreadable — swap White for
- * UI.colors.pureInverse (theme-aware) if that matters.
+ * Text uses UI.colors.pureInverse (theme-aware: white in dark mode,
+ * near-black in light mode) rather than a hard-coded white, so it stays
+ * readable if the app is ever used in light theme.
  *
  * NOTE on runningBalance: this is a RELATIVE running total computed only
  * from the transactions currently loaded in this list (see
@@ -87,8 +85,8 @@ fun CompactTransactionCard(
 
     // + for income and transfer, - for expense (as requested).
     val (sign, amountColor) = when (transaction.type) {
-        TransactionType.INCOME -> "+" to White
-        TransactionType.TRANSFER -> "+" to White
+        TransactionType.INCOME -> "+" to IncomeGreen
+        TransactionType.TRANSFER -> "+" to UI.colors.pureInverse
         TransactionType.EXPENSE -> "-" to Red
     }
 
@@ -108,7 +106,7 @@ fun CompactTransactionCard(
                 text = title ?: "",
                 style = UI.typo.b2.style(
                     fontWeight = FontWeight.Bold,
-                    color = White
+                    color = UI.colors.pureInverse
                 ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -128,7 +126,7 @@ fun CompactTransactionCard(
                         text = accountLabel,
                         style = UI.typo.c.style(
                             fontWeight = FontWeight.Normal,
-                            color = White
+                            color = UI.colors.pureInverse
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -153,7 +151,7 @@ fun CompactTransactionCard(
                     text = "${runningBalance.format(transactionCurrency)} $transactionCurrency",
                     style = UI.typo.c.style(
                         fontWeight = FontWeight.Normal,
-                        color = White
+                        color = UI.colors.pureInverse
                     ),
                     maxLines = 1
                 )
@@ -161,3 +159,5 @@ fun CompactTransactionCard(
         }
     }
 }
+
+private val IncomeGreen = androidx.compose.ui.graphics.Color(0xFF4AFFB1)

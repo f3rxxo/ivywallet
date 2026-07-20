@@ -27,6 +27,7 @@ import com.ivy.legacy.data.AppBaseData
 import com.ivy.legacy.data.BufferInfo
 import com.ivy.legacy.data.LegacyDueSection
 import com.ivy.legacy.data.model.MainTab
+import com.ivy.legacy.data.model.Month
 import com.ivy.legacy.data.model.TimePeriod
 import com.ivy.legacy.data.model.toUTCCloseTimeRange
 import com.ivy.legacy.datamodel.Account
@@ -106,6 +107,7 @@ class HomeViewModel @Inject constructor(
     )
     private var history by mutableStateOf<ImmutableList<TransactionHistoryItem>>(persistentListOf())
     private var stats by mutableStateOf(IncomeExpensePair.zero())
+    private var lastMonthStats by mutableStateOf(IncomeExpensePair.zero())
     private var balance by mutableStateOf(BigDecimal.ZERO)
     private var buffer by mutableStateOf(
         BufferInfo(
@@ -146,6 +148,7 @@ class HomeViewModel @Inject constructor(
             baseData = getBaseData(),
             history = getHistory(),
             stats = getStats(),
+            lastMonthStats = getLastMonthStats(),
             balance = getBalance(),
             buffer = getBuffer(),
             upcoming = getUpcoming(),
@@ -191,6 +194,11 @@ class HomeViewModel @Inject constructor(
     @Composable
     private fun getStats(): IncomeExpensePair {
         return stats
+    }
+
+    @Composable
+    private fun getLastMonthStats(): IncomeExpensePair {
+        return lastMonthStats
     }
 
     @Composable
@@ -328,14 +336,46 @@ class HomeViewModel @Inject constructor(
             )
         )
 
+        val lastMonthRange = previousMonthRange(period)
+        val lastMonthIncomeExpense = calcIncomeExpenseAct(
+            CalcIncomeExpenseAct.Input(
+                baseCurrency = settings.baseCurrency,
+                accounts = accounts,
+                range = lastMonthRange
+            )
+        )
+
         val balanceAmount = calcWalletBalanceAct(
             CalcWalletBalanceAct.Input(baseCurrency = settings.baseCurrency)
         )
 
         balance = balanceAmount
         stats = incomeExpense
+        lastMonthStats = lastMonthIncomeExpense
 
         return Triple(settings, timeRange, balanceAmount)
+    }
+
+    /**
+     * The calendar month immediately before [forPeriod], as a ClosedTimeRange.
+     * Deliberately does NOT use Month.incrementMonthPeriod() — that method
+     * has the side effect of overwriting the app's globally selected period
+     * in ivyContext, which would be wrong here since this is just a
+     * background comparison calculation, not a navigation action.
+     */
+    private fun previousMonthRange(forPeriod: TimePeriod): ClosedTimeRange {
+        val currentMonth = forPeriod.month ?: Month.fromMonthValue(dateNowUTC().monthValue)
+        val currentYear = forPeriod.year ?: dateNowUTC().year
+        val previousMonthDate = currentMonth.toDate().withYear(currentYear).minusMonths(1)
+        val previousPeriod = TimePeriod(
+            month = Month.fromMonthValue(previousMonthDate.monthValue),
+            year = previousMonthDate.year
+        )
+        return previousPeriod.toRange(
+            startDateOfMonth = ivyContext.startDayOfMonth,
+            timeConverter = timeConverter,
+            timeProvider = timeProvider
+        ).toUTCCloseTimeRange()
     }
 
     private suspend fun loadBuffer(

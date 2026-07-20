@@ -22,6 +22,9 @@ data class HomeState(
 
     val history: ImmutableList<TransactionHistoryItem>,
     val stats: IncomeExpensePair,
+    // Same shape as `stats`, but for the calendar month immediately before
+    // `period` — used to show "+12% vs last month" style comparisons.
+    val lastMonthStats: IncomeExpensePair,
 
     val balance: BigDecimal,
 
