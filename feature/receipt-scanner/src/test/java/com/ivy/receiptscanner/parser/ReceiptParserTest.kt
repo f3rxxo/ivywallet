@@ -173,4 +173,93 @@ class ReceiptParserTest {
         assertEquals(1, results.size)
         assertEquals("Mariano's", results[0].merchantGuess)
     }
+
+    @Test
+    fun `handles a merchant phrase wrapped across two OCR lines`() {
+        // Regression test for the real bug report: OCR reflow can split
+        // "at MARIANOS #543 LOMBARD USA on card ending in 2033" across two
+        // physical lines mid-sentence, at an arbitrary word boundary. The
+        // parser must still recognize this as one continuous phrase.
+        val text = """
+            A ${'$'}6.06 transaction was made at MARIANOS #543
+            LOMBARD USA on card ending in 2033. View details
+            now.
+        """.trimIndent()
+
+        val result = parser.parse(text)
+
+        assertEquals("Mariano's", result.merchantGuess)
+        assertEquals(BigDecimal("6.06"), result.totalAmountGuess)
+    }
+
+    @Test
+    fun `parseAll detects multiple grouped alerts even when each wraps across several OCR lines`() {
+        // Same regression as above, but for the multi-transaction path —
+        // this is the exact shape of the real Citi notification screenshot.
+        val text = """
+            Citi Mobile - 7h
+            2
+            7h
+            Citi Alert: Transaction Exceeds
+            A ${'$'}6.06 transaction was made at MARIANOS #543
+            LOMBARD USA on card ending in 2033. View details
+            now.
+            8h
+            Citi Alert: Transaction Exceeds
+            A ${'$'}35.52 transaction was made at ALDI INC LOMBARD
+            USA on card ending in 2033. View details now.
+        """.trimIndent()
+
+        val results = parser.parseAll(text)
+
+        assertEquals(2, results.size)
+        assertEquals("Mariano's", results[0].merchantGuess)
+        assertEquals(BigDecimal("6.06"), results[0].totalAmountGuess)
+        assertEquals("Aldi", results[1].merchantGuess)
+        assertEquals(BigDecimal("35.52"), results[1].totalAmountGuess)
+    }
+
+    @Test
+    fun `handles transfer-to phrasing and ignores a decoy dollar amount`() {
+        // Regression test for the real Chase bug report: this notification
+        // uses "transfer to MERCHANT" (not "at MERCHANT"), AND contains a
+        // second, smaller dollar amount that's just the alert threshold
+        // ("$0.00 limit"), not a real transaction. Must not be mistaken
+        // for a second grouped transaction, and must not lose the real
+        // amount/merchant to that noise.
+        val text = "Chase account 5866: Your \$15.16 external transfer to " +
+            "SAMSCLUB MSTRCRD on Jul 13, 2026 at 1:37 AM ET was more than " +
+            "the \$0.00 limit in your Alerts settings."
+
+        val results = parser.parseAll(text)
+
+        assertEquals(1, results.size)
+        assertEquals("Sam's Club", results[0].merchantGuess)
+        assertEquals(BigDecimal("15.16"), results[0].totalAmountGuess)
+    }
+
+    @Test
+    fun `does not mistake status bar clock text for the merchant on a full-screen screenshot`() {
+        // Regression test: a full-screen (not cropped-to-notification)
+        // screenshot includes status bar / quick-settings text before the
+        // actual notification content. The real merchant phrase should
+        // still win over that noise via notification-phrasing extraction.
+        val text = """
+            6:48 Mon, Jul 13
+            Internet
+            T-Mobile, 5G UC
+            Bluetooth
+            Chase - 6h
+            Chase
+            Chase account 5866: Your ${'$'}15.16 external transfer to
+            SAMSCLUB MSTRCRD on Jul 13, 2026 at 1:37 AM ET was
+            more than the ${'$'}0.00 limit in your Alerts settings.
+            Clear all
+        """.trimIndent()
+
+        val result = parser.parse(text)
+
+        assertEquals("Sam's Club", result.merchantGuess)
+        assertEquals(BigDecimal("15.16"), result.totalAmountGuess)
+    }
 }
