@@ -4,6 +4,7 @@ import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import com.ivy.attributions.AttributionsScreenImpl
 import com.ivy.balance.BalanceScreen
 import com.ivy.budgets.BudgetScreen
@@ -76,7 +77,7 @@ fun BoxWithConstraintsScope.IvyNavGraph(screen: Screen?) {
         is MainScreen -> MainScreen(screen = screen)
         is OnboardingScreen -> OnboardingScreen(screen = screen)
         is ExchangeRatesScreen -> ExchangeRatesScreen()
-        is EditTransactionScreen -> EditTransactionScreen(screen = screen)
+        is EditTransactionScreen -> key(screen) { EditTransactionScreen(screen = screen) }
         ReceiptScannerScreen -> ReceiptScannerScreenRoute()
         NotificationListenerSettingsScreen -> NotificationListenerSettingsScreen(
             onBack = { nav.back() }
