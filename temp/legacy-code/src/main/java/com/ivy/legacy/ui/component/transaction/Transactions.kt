@@ -272,6 +272,21 @@ private fun LazyListScope.historySection(
             balances
         }
 
+        // Zebra-striping: alternates by TRANSACTION position only (date
+        // dividers don't count), so the tint pattern reads consistently
+        // regardless of how many dividers are interspersed.
+        val isOddTransactionById: Map<java.util.UUID, Boolean> = run {
+            var ordinal = 0
+            val result = mutableMapOf<java.util.UUID, Boolean>()
+            history.forEach { item ->
+                if (item is Transaction) {
+                    result[item.id] = ordinal % 2 == 1
+                    ordinal++
+                }
+            }
+            result
+        }
+
         items(
             items = history,
             key = {
@@ -292,7 +307,8 @@ private fun LazyListScope.historySection(
                         transaction = it,
                         shouldShowAccountSpecificColorInTransactions = shouldShowAccountSpecificColorInTransactions,
                         onPayOrGet = onPayOrGet,
-                        runningBalance = runningBalanceByTransactionId[it.id]
+                        runningBalance = runningBalanceByTransactionId[it.id],
+                        isAlternateRow = isOddTransactionById[it.id] ?: false
                     ) { trn ->
                         onTransactionClick(
                             nav = nav,

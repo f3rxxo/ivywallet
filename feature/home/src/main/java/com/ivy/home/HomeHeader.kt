@@ -58,7 +58,6 @@ import com.ivy.wallet.ui.theme.Green
 import com.ivy.wallet.ui.theme.White
 import com.ivy.wallet.ui.theme.components.BalanceRow
 import com.ivy.wallet.ui.theme.components.BalanceRowMini
-import com.ivy.wallet.ui.theme.components.IvyIcon
 import com.ivy.wallet.ui.theme.components.IvyOutlinedButton
 import com.ivy.wallet.ui.theme.wallet.AmountCurrencyB1
 import kotlin.math.absoluteValue
@@ -435,13 +434,6 @@ private fun RowScope.HeaderCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Spacer(Modifier.width(16.dp))
-
-            IvyIcon(
-                icon = icon,
-                tint = textColor,
-            )
-
-            Spacer(Modifier.width(4.dp))
 
             Text(
                 text = label,
