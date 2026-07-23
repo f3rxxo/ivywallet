@@ -54,11 +54,20 @@ object DefaultMerchantCategoryDictionary {
         "IKEA" to "Household",
         "HOME DEPOT" to "Household",
         "TARGET" to "Household",
+        "AMAZON RETAIL" to "Household",
 
         // Entertainment
         "NETFLIX" to "Entertainment",
         "SPOTIFY" to "Entertainment",
         "CINEMA" to "Entertainment"
+
+       // Bills
+       "T-MOBILE" to "bills",
+       "TMOBILE" to "bills",
+       "COMED" to "bills",   
+       "LOMBARD CIBC RENT" to "bills",
+       "XFINITY" to "bills",
+       "COMCAST" to "bills",
     )
 
     /** @return a suggested category name, or null if nothing matched. */

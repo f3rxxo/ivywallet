@@ -131,7 +131,7 @@ fun CompactTransactionCard(
                     Text(
                         text = accountLabel,
                         style = UI.typo.c.style(
-                            fontWeight = FontWeight.Normal,
+                            fontWeight = FontWeight.ExtraLight,
                             color = UI.colors.pureInverse
                         ),
                         maxLines = 1,

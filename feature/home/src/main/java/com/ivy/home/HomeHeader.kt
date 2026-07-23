@@ -345,8 +345,8 @@ private fun IncomeExpenses(
         HeaderCard(
             percentVisible = percentExpanded,
             icon = R.drawable.ic_expense,
-            backgroundGradient = Gradient(UI.colors.pureInverse, UI.colors.gray),
-            textColor = UI.colors.pure,
+            backgroundGradient = Gradient(PastelRedLight, PastelRedDark),
+            textColor = White,
             label = stringResource(R.string.expenses),
             currency = currency,
             amount = monthlyExpenses.absoluteValue,
@@ -476,7 +476,7 @@ private fun RowScope.HeaderCard(
                 Text(
                     text = comparison.text,
                     style = UI.typo.nC.style(
-                        color = if (comparison.favorable) Green else Gray,
+                        color = White,
                         fontWeight = FontWeight.Bold,
                     ),
                 )
@@ -488,3 +488,6 @@ private fun RowScope.HeaderCard(
         Spacer(Modifier.height(if (comparison != null) 12.dp else 20.dp))
     }
 }
+
+private val PastelRedLight = Color(0xFFFFB3B3)
+private val PastelRedDark = Color(0xFFFF8C8C)
