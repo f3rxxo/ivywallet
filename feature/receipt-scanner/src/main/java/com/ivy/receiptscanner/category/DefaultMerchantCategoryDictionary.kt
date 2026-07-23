@@ -22,10 +22,10 @@ object DefaultMerchantCategoryDictionary {
         "TESCO" to "Groceries",
         "TRADER JOE" to "Groceries",
         "WHOLE FOODS" to "Groceries",
-        "KROGER" to "Groceries",
-        "SAFEWAY" to "Groceries",
+        "MARIANO'S" to "Groceries",
+        "MARIANOS" to "Groceries",
         "COSTCO" to "Groceries",
-        "CARREFOUR" to "Groceries",
+        "JOWEL OSCO" to "Groceries",
         "SAINSBURY" to "Groceries",
 
         // Dining / coffee
