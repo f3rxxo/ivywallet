@@ -59,7 +59,7 @@ object DefaultMerchantCategoryDictionary {
         // Entertainment
         "NETFLIX" to "Entertainment",
         "SPOTIFY" to "Entertainment",
-        "CINEMA" to "Entertainment"
+        "CINEMA" to "Entertainment",
 
        // Bills
        "T-MOBILE" to "bills",
@@ -67,7 +67,7 @@ object DefaultMerchantCategoryDictionary {
        "COMED" to "bills",   
        "LOMBARD CIBC RENT" to "bills",
        "XFINITY" to "bills",
-       "COMCAST" to "bills",
+       "COMCAST" to "bills"
     )
 
     /** @return a suggested category name, or null if nothing matched. */
